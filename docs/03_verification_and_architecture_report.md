@@ -1,7 +1,7 @@
 # Phases 2–5 Implementation & Adversarial Verification Report (`cod.ai`)
 
 **Document ID:** `03_verification_and_architecture_report.md`  
-**Target Repository:** [Heretek-AI/cod.ai](https://www.google.com/search?q=https://github.com/Heretek-AI/cod.ai) & [Heretek-AI/pi-configs](https://github.com/Heretek-AI/pi-configs)  
+**Target Repository:** [Heretek-AI/cod.ai](https://github.com/Heretek-AI/cod.ai) & [Heretek-AI/pi-configs](https://github.com/Heretek-AI/pi-configs)  
 **Adversarial Verifier Verdict:** **VERDICT: PASS**  
 **Lead Agent Spot-Check Confirmation:** **`True`**
 

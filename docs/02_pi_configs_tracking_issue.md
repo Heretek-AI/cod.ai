@@ -1,7 +1,7 @@
 # Tracking Issue: Upgrade `@heretek-ai/pi-configs` to 100% `cod.ai` Architectural Invariant Compliance (v1.3.0)
 
 **Target Repository:** [Heretek-AI/pi-configs](https://github.com/Heretek-AI/pi-configs) ([`@heretek-ai/pi-configs` on pi.dev](https://pi.dev/packages/@heretek-ai/pi-configs))  
-**Linked Architecture Repo:** [Heretek-AI/cod.ai](https://www.google.com/search?q=https://github.com/Heretek-AI/cod.ai)  
+**Linked Architecture Repo:** [Heretek-AI/cod.ai](https://github.com/Heretek-AI/cod.ai)  
 **Proposed Labels:** `enhancement`, `architecture`, `cache-optimization`, `specialist-fleet`  
 **Status:** Ready to File (`pi_configs_upstream/create_tracking_issue.sh` + drop-in PR payload generated in `pi_configs_upstream/`)
 
@@ -9,7 +9,7 @@
 
 ## 1. Problem Statement & Forensic Audit Summary
 
-During the Phase 1 Harness Evaluation for [Heretek-AI/cod.ai](https://www.google.com/search?q=https://github.com/Heretek-AI/cod.ai) (`docs/01_harness_decision_matrix.md`), we audited [Pi (`@earendil-works/pi-coding-agent`)](https://github.com/earendil-works/pi) combined with [`@heretek-ai/pi-configs` (v1.2.0)](https://pi.dev/packages/@heretek-ai/pi-configs) against our **Six Non-Negotiable Architectural Invariants**.
+During the Phase 1 Harness Evaluation for [`Heretek-AI/cod.ai`](https://github.com/Heretek-AI/cod.ai) (`docs/01_harness_decision_matrix.md`), we audited [Pi (`@earendil-works/pi-coding-agent`)](https://github.com/earendil-works/pi) combined with [`@heretek-ai/pi-configs` (v1.2.0)](https://pi.dev/packages/@heretek-ai/pi-configs) against our **Six Non-Negotiable Architectural Invariants**.
 
 While `@heretek-ai/pi-configs` natively passes Invariant #2 (Deferred Tool Loading via `pi-mcp-adapter` ~200-token proxy), Invariant #5 (Clean-Context Sub-Agent Spawning via `Pi-Agents-Team` RPC `<final_answer>` extraction), and Invariant #6 (Headless CLI/RPC execution), **three areas scored `PARTIAL` due to extension-level behavior that we can fix directly in `Heretek-AI/pi-configs`**:
 
@@ -39,12 +39,3 @@ While `@heretek-ai/pi-configs` natively passes Invariant #2 (Deferred Tool Loadi
 | `agents/adversarial-verifier/.pi/hook/hooks.yaml` | `agents/adversarial-verifier/.pi/hook/hooks.yaml` | Deterministic exit-code-2 pre-tool guard blocking `Edit`/`Write` outside `/tmp` and blocking sub-agent recursion. |
 | `agents/attention-budget-governor/AGENTS.md` | `agents/attention-budget-governor/AGENTS.md` | Specialist #73 (`Compact Service` modeled on `21_compact_service.md`) enforcing `NO_TOOLS_PREAMBLE`, `<analysis>` stripping, and 9-section `<summary>`. |
 | `create_tracking_issue.sh` | *(Helper CLI script)* | One-click script using `gh issue create --repo Heretek-AI/pi-configs` or GitHub REST API (`POST /repos/Heretek-AI/pi-configs/issues`) to publish this exact tracking issue from any host with a GitHub token. |
-
----
-
-## 3. Acceptance Criteria for `Heretek-AI/pi-configs` v1.3.0
-
-- [ ] Running `/specialist <slug>` mid-session appends a Layer 3 `role: "system"` / `<system_reminder>` charter delta without modifying Layer 1, resulting in `0` uncached prefix re-writes (`Cache Re-billed: $0.00`).
-- [ ] `holistic-web-architect` executes the 4-stage iterative drafting loop (`Outline -> Section-by-Section Generation -> Review & Refine -> Final Output`) on all specs/files $>100$ lines and aborts with exit code `2` on any placeholder comment.
-- [ ] `attention-budget-governor` triggers Stage 1 cache-safe micro-compaction at 60% utilization and Stage 2 9-section `<summary>` compaction (plus top-5 recently accessed files) at 75% utilization.
-- [ ] `adversarial-verifier` blocks all non-`/tmp` file mutations via `hooks.yaml` (exit code `2`) and outputs `VERDICT: PASS`, `VERDICT: FAIL`, or `VERDICT: PARTIAL` with 2–3 reproducible spot-check commands.
