@@ -11,11 +11,14 @@ and thinking blocks stay valid.
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
+import re
 import secrets
 from typing import Any
 
 SESSIONS_DIR = Path(".cod") / "sessions"
+SESSION_ID_PATTERN = re.compile(r"[0-9]{8}-[0-9]{6}-[0-9a-f]{6}")
 
 
 class SessionError(RuntimeError):
@@ -89,7 +92,14 @@ class Session:
         """Loads a session by id, or the most recent one when no id is given."""
         directory = Path(root) / SESSIONS_DIR
         if session_id:
-            return cls.load(directory / f"{session_id}.jsonl")
+            # Ids come from the command line or a URL, so only the generated form is accepted.
+            if not SESSION_ID_PATTERN.fullmatch(session_id):
+                raise SessionError(f"invalid session id {session_id!r}")
+            base = os.path.realpath(directory)
+            path = os.path.realpath(os.path.join(base, f"{session_id}.jsonl"))
+            if not path.startswith(base + os.sep):
+                raise SessionError(f"invalid session id {session_id!r}")
+            return cls.load(path)
         candidates = sorted(directory.glob("*.jsonl")) if directory.is_dir() else []
         if not candidates:
             raise SessionError(f"no sessions in {directory}")

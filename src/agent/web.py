@@ -15,7 +15,6 @@ import asyncio
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
-import re
 import secrets
 from typing import Any, AsyncIterator, Literal
 
@@ -47,7 +46,6 @@ from src.agent.tools import ToolError, Toolbox
 MAX_PROMPT_CHARS = 1_000_000
 # Tool output shown in the browser; the model still gets the full result.
 MAX_OUTPUT_PREVIEW = 4_000
-SESSION_ID = re.compile(r"^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$")
 
 
 @dataclass
@@ -158,8 +156,6 @@ class AgentService:
     def get(self, session_id: str) -> LiveSession:
         if session_id in self.live:
             return self.live[session_id]
-        if not SESSION_ID.match(session_id):
-            raise HTTPException(404, "no such session")
         try:
             session = Session.find(self.settings.root, session_id)
         except SessionError:

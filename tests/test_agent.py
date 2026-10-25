@@ -281,8 +281,11 @@ class SessionTests(TempProject):
     def test_missing_and_corrupt_sessions(self):
         with self.assertRaises(SessionError):
             Session.find(self.root)
+        for bad_id in ("nope", "../../etc/passwd", "20260101-000000-abcdef/../x"):
+            with self.assertRaises(SessionError):
+                Session.find(self.root, bad_id)
         with self.assertRaises(SessionError):
-            Session.find(self.root, "nope")
+            Session.find(self.root, "20260101-000000-abcdef")
         bad = self.write(".cod/sessions/bad.jsonl", "{broken\n")
         with self.assertRaises(SessionError):
             Session.load(bad)
@@ -623,7 +626,7 @@ class CliTests(TempProject):
         self.assertIn("authentication", err)
         code, _, err = self.cod("--resume", "missing", "-p", "x", client=FakeClient(refusal))
         self.assertEqual(code, 1)
-        self.assertIn("no session file", err)
+        self.assertIn("invalid session id", err)
 
     def test_serve_refuses_public_hosts(self):
         self.assertTrue(cli.is_loopback_host("::1"))
