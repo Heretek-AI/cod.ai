@@ -1,121 +1,252 @@
 #!/usr/bin/env python3
 """
-FastAPI Web GUI & Local Policy Proxy Server (`/src/web_server.py`).
-Serves the Claude Web Opus 5.5 GUI at `http://127.0.0.1:8642` (matching the Proxmox VE port 8642 spec)
-and exposes REST endpoints for live custom endpoint configuration, 3-Layer Cache assembly,
-and `/skill doctor` telemetry inspection.
+Local web chat server for cod.ai (`/src/web_server.py`).
+
+Serves the single-page GUI in `web/index.html` and proxies chat turns to the
+Claude Messages API as a server-sent event stream. Credentials never reach the
+browser: the Anthropic client resolves them on the server (`ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, or an `ant auth login` profile), and `ANTHROPIC_BASE_URL`
+points it at a gateway such as the local credential proxy.
+
+The browser owns the conversation history and sends it back each turn. The
+server only ever appends to it, so prompt caching and preserved thinking keep
+working: assistant turns are echoed back exactly as the API returned them.
 """
+import json
+import os
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator, Literal
 
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
-
-from src.context.cache_assembler import ThreeLayerCacheAssembler
-from src.security.classifier import TwoStageSecurityClassifier
-from src.security.proxy_sandbox import CredentialVaultProxy
-from src.security.telemetry import SkillDoctorTelemetryEngine
-
-app = FastAPI(title="cod.ai Claude Web Opus 5.5 Studio & Proxy Server", version="0.2.0")
+import anthropic
+from fastapi import Depends, FastAPI
+from fastapi.responses import HTMLResponse, StreamingResponse
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
 WEB_INDEX_PATH = WORKSPACE_ROOT / "web" / "index.html"
 
-vault_proxy = CredentialVaultProxy()
-classifier = TwoStageSecurityClassifier()
-telemetry_engine = SkillDoctorTelemetryEngine()
+# Models offered in the GUI. `fallbacks` marks models that accept the
+# server-side `fallbacks: "default"` refusal fallback (Claude Haiku 5.5 has none).
+MODELS: dict[str, dict[str, Any]] = {
+    "claude-opus-5-5": {"label": "Claude Opus 5.5", "default_effort": "medium", "fallbacks": True},
+    "claude-fable-5-1": {"label": "Claude Fable 5.1", "default_effort": "high", "fallbacks": True},
+    "claude-sonnet-5-5": {"label": "Claude Sonnet 5.5", "default_effort": "high", "fallbacks": True},
+    "claude-haiku-5-5": {"label": "Claude Haiku 5.5", "default_effort": "medium", "fallbacks": False},
+}
+DEFAULT_MODEL = "claude-opus-5-5"
+EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+THINKING_DISPLAYS = ("summarized", "omitted")
+
+MAX_OUTPUT_TOKENS = 64_000
+MAX_MESSAGES = 1_000
+MAX_REQUEST_CHARS = 8_000_000
+
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+BASE_SYSTEM_PROMPT = (
+    "You are cod.ai, a coding and architecture assistant chatting with a developer "
+    "through a local web interface. Answer in GitHub-flavored Markdown and put code "
+    "in fenced blocks tagged with their language."
+)
 
 
-class EndpointConfigPayload(BaseModel):
-    base_url: str
-    wire_protocol: str = "anthropic-messages"
-    model: str = "claude-opus-5-5"
-    api_key: str = ""
-    proxy_url: str = "http://127.0.0.1:3128"
+def _env_flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in ("0", "false", "no", "off", "")
 
 
-class ChatTurnPayload(BaseModel):
-    prompt: str
-    model: str = "claude-opus-5-5"
-    effort: str = "medium"
-    thinking_display: str = "summarized"
-    polarity_mode: str = "MODE_A_ARCHITECT"
-    specialist_slug: str = "holistic-web-architect"
+def build_system_prompt(root: Path = WORKSPACE_ROOT) -> str:
+    """
+    Builds the system prompt once at startup so it stays byte-identical for the
+    whole process: the base prompt plus the repository's CLAUDE.md and AGENTS.md.
+    Set `COD_PROJECT_CONTEXT=0` to leave the project files out.
+    """
+    parts = [BASE_SYSTEM_PROMPT]
+    if _env_flag("COD_PROJECT_CONTEXT", True):
+        for name in ("CLAUDE.md", "AGENTS.md"):
+            path = root / name
+            if path.is_file():
+                text = path.read_text(encoding="utf-8").strip()
+                parts.append(f'<project_file name="{name}">\n{text}\n</project_file>')
+    return "\n\n".join(parts)
+
+
+SYSTEM_PROMPT = build_system_prompt()
+
+_client: anthropic.AsyncAnthropic | None = None
+
+
+def get_client() -> anthropic.AsyncAnthropic:
+    global _client
+    if _client is None:
+        _client = anthropic.AsyncAnthropic()
+    return _client
+
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str | list[dict[str, Any]]
+
+    @field_validator("content")
+    @classmethod
+    def _not_empty(cls, value: str | list[dict[str, Any]]) -> str | list[dict[str, Any]]:
+        if isinstance(value, str) and not value.strip():
+            raise ValueError("message content is empty")
+        if isinstance(value, list):
+            if not value:
+                raise ValueError("message content is empty")
+            if any(not isinstance(block.get("type"), str) for block in value):
+                raise ValueError("every content block needs a string 'type'")
+        return value
+
+
+class ChatRequest(BaseModel):
+    model: str = DEFAULT_MODEL
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
+    thinking_display: Literal["summarized", "omitted"] = "summarized"
+    messages: list[ChatMessage] = Field(min_length=1, max_length=MAX_MESSAGES)
+
+    @field_validator("model")
+    @classmethod
+    def _known_model(cls, value: str) -> str:
+        if value not in MODELS:
+            raise ValueError(f"unsupported model {value!r}")
+        return value
+
+    @model_validator(mode="after")
+    def _well_formed_history(self) -> "ChatRequest":
+        if self.messages[0].role != "user":
+            raise ValueError("the conversation must start with a user message")
+        if self.messages[-1].role != "user":
+            raise ValueError("the conversation must end with a user message")
+        size = len(json.dumps([m.model_dump() for m in self.messages]))
+        if size > MAX_REQUEST_CHARS:
+            raise ValueError(f"conversation is too large ({size} characters)")
+        return self
+
+
+def build_request_params(req: ChatRequest, use_fallbacks: bool) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "model": req.model,
+        "max_tokens": MAX_OUTPUT_TOKENS,
+        "system": SYSTEM_PROMPT,
+        "messages": [m.model_dump() for m in req.messages],
+        "thinking": {"type": "adaptive", "display": req.thinking_display},
+        "output_config": {"effort": req.effort or MODELS[req.model]["default_effort"]},
+        # Automatic caching: the breakpoint rolls forward to the newest block each
+        # turn, so the system prompt and earlier history are read from cache.
+        "cache_control": {"type": "ephemeral"},
+    }
+    if use_fallbacks and MODELS[req.model]["fallbacks"]:
+        params["betas"] = [FALLBACK_BETA]
+        params["fallbacks"] = "default"
+    return params
+
+
+def history_content(content: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Returns the assistant content to echo back on the next turn. After a
+    mid-output fallback, only text survives from the blocks before the last
+    `fallback` marker; the marker itself is dropped. Everything else is kept
+    unchanged so thinking blocks stay valid.
+    """
+    last_fallback = max((i for i, b in enumerate(content) if b.get("type") == "fallback"), default=-1)
+    kept: list[dict[str, Any]] = []
+    for i, block in enumerate(content):
+        if i < last_fallback and block.get("type") != "text":
+            continue
+        if i == last_fallback:
+            continue
+        kept.append(block)
+    return kept
+
+
+def _sse(event: str, data: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def stream_chat_events(client: anthropic.AsyncAnthropic, params: dict[str, Any]) -> AsyncIterator[str]:
+    """
+    Streams one turn as SSE events: `start`, `block` (a new content block),
+    `delta` (thinking or text), then `done` with the final message, or `error`.
+    """
+    try:
+        async with client.beta.messages.stream(**params) as stream:
+            async for event in stream:
+                if event.type == "message_start":
+                    yield _sse("start", {"model": event.message.model})
+                elif event.type == "content_block_start":
+                    block = event.content_block.to_dict()
+                    # Deltas carry the text; send the block's type and metadata only.
+                    block.pop("text", None)
+                    block.pop("thinking", None)
+                    yield _sse("block", {"index": event.index, "block": block})
+                elif event.type == "content_block_delta":
+                    if event.delta.type == "text_delta":
+                        yield _sse("delta", {"index": event.index, "kind": "text", "text": event.delta.text})
+                    elif event.delta.type == "thinking_delta":
+                        yield _sse("delta", {"index": event.index, "kind": "thinking", "text": event.delta.thinking})
+            final = await stream.get_final_message()
+
+        content = [block.to_dict() for block in final.content]
+        refused = final.stop_reason == "refusal"
+        yield _sse("done", {
+            "model": final.model,
+            "stop_reason": final.stop_reason,
+            "stop_details": final.stop_details.to_dict() if refused and final.stop_details else None,
+            # A refused turn is discarded rather than echoed back.
+            "history": None if refused else history_content(content),
+            "usage": final.usage.to_dict(),
+        })
+    except anthropic.APIStatusError as exc:
+        body = exc.body if isinstance(exc.body, dict) else {}
+        error = body.get("error") if isinstance(body.get("error"), dict) else {}
+        yield _sse("error", {"status": exc.status_code, "message": error.get("message") or exc.message})
+    except anthropic.APIConnectionError:
+        yield _sse("error", {"status": None, "message": "Could not reach the Claude API. Check the network or ANTHROPIC_BASE_URL."})
+    except anthropic.AnthropicError as exc:
+        # Raised before any request is sent, e.g. when no credentials are configured.
+        yield _sse("error", {"status": None, "message": str(exc)})
+
+
+app = FastAPI(title="cod.ai web chat", version="0.2.0")
 
 
 @app.get("/", response_class=HTMLResponse)
-def serve_claude_web_gui() -> HTMLResponse:
-    if WEB_INDEX_PATH.exists():
+def serve_index() -> HTMLResponse:
+    if WEB_INDEX_PATH.is_file():
         return HTMLResponse(WEB_INDEX_PATH.read_text(encoding="utf-8"))
-    return HTMLResponse("<h1>cod.ai Web GUI not found</h1>", status_code=404)
+    return HTMLResponse("<h1>cod.ai web GUI not found</h1>", status_code=404)
 
 
-@app.post("/api/endpoint/configure")
-def configure_custom_endpoint(cfg: EndpointConfigPayload) -> JSONResponse:
-    if cfg.api_key:
-        vault_proxy.register_secret("CUSTOM_ENDPOINT_API_KEY", cfg.api_key)
-    # Add target host to allowlist
-    host = cfg.base_url.split("//")[-1].split("/")[0].split(":")[0].lower()
-    if host:
-        vault_proxy.allowlisted_hosts.add(host)
-    check = vault_proxy.inspect_and_inject_outbound_request(cfg.base_url)
-    return JSONResponse({
-        "status": "ok",
-        "allowlisted": check.allowed,
-        "target_url": cfg.base_url,
-        "wire_protocol": cfg.wire_protocol,
-        "model": cfg.model,
-        "vault_sealed": bool(cfg.api_key),
-    })
-
-
-@app.post("/api/chat/assemble")
-def assemble_three_layer_turn(turn: ChatTurnPayload) -> JSONResponse:
-    assembler = ThreeLayerCacheAssembler(
-        model=turn.model,
-        system_prompt=f"You are cod.ai operating in {turn.polarity_mode}.",
-        layer2_project_context="# CLAUDE.md\nPreserve 3-layer prefix cache.",
-    )
-    assembler.append_user_message(
-        turn.prompt,
-        system_reminders=[f"Active Specialist: {turn.specialist_slug} | Effort: {turn.effort}"],
-    )
-    req = assembler.assemble_request()
-    return JSONResponse({
-        "model": req.model,
-        "layer1_hash": req.layer1_hash,
-        "layer2_hash": req.layer2_hash,
-        "layer1_tokens": req.layer1_tokens,
-        "layer2_tokens": req.layer2_tokens,
-        "layer3_tokens": req.layer3_tokens,
-        "breakpoint_count": req.breakpoint_count,
-        "output_config": {"effort": turn.effort},
-        "thinking": {"type": "adaptive", "display": turn.thinking_display},
-    })
-
-
-@app.get("/api/telemetry")
-def get_live_telemetry() -> dict[str, Any]:
-    snap = telemetry_engine.run_skill_doctor(
-        session_id="sess_web_opus_5_5",
-        model="claude-opus-5-5",
-        active_tokens=185_000,
-        context_window=1_000_000,
-        cache_read_tokens=480_000,
-        cache_write_tokens=45_000,
-        cache_rebilled_usd=0.0,
-        tokens_before_compact=760_000,
-        tokens_after_compact=190_000,
-        retrieved_items=["cache_assembler.py", "ttl_scheduler.py"],
-        relevant_items={"cache_assembler.py", "ttl_scheduler.py"},
-    )
+@app.get("/api/config")
+def get_config() -> dict[str, Any]:
     return {
-        "session_id": snap.session_id,
-        "model": snap.model,
-        "context_utilization_pct": snap.context_utilization_pct,
-        "cache_hit_rate_pct": snap.cache_hit_rate_pct,
-        "cache_rebilled_usd": snap.cache_rebilled_usd,
-        "compression_ratio": snap.compression_ratio,
-        "retrieval_precision_pct": snap.retrieval_precision_pct,
+        "default_model": DEFAULT_MODEL,
+        "models": [{"id": model_id, **info} for model_id, info in MODELS.items()],
+        "effort_levels": list(EFFORT_LEVELS),
+        "thinking_displays": list(THINKING_DISPLAYS),
+        "project_context": SYSTEM_PROMPT != BASE_SYSTEM_PROMPT,
     }
+
+
+@app.post("/api/chat")
+def chat(req: ChatRequest, client: anthropic.AsyncAnthropic = Depends(get_client)) -> StreamingResponse:
+    params = build_request_params(req, use_fallbacks=_env_flag("COD_FALLBACKS", True))
+    return StreamingResponse(
+        stream_chat_events(client, params),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def run(host: str = "127.0.0.1", port: int = 8642) -> None:
+    import uvicorn
+
+    uvicorn.run(app, host=host, port=port)
+
+
+if __name__ == "__main__":
+    run()

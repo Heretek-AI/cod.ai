@@ -1,1773 +1,782 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="light">
+<!doctype html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>cod.ai — Claude Web Opus 5.5 Studio &amp; Dual-Polarity Orchestrator</title>
-  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>cod.ai chat</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet" />
   <style>
-    :root, [data-theme="light"] {
+    :root {
       --bg-canvas: #faf9f5;
       --bg-surface-soft: #f5f0e8;
       --bg-surface-card: #efe9de;
       --bg-surface-strong: #e8e0d2;
-      --bg-code-surface: #181715;
+      --bg-code: #181715;
+      --text-code: #faf9f5;
       --accent-primary: #cc785c;
       --accent-primary-active: #a9583e;
       --accent-disabled: #e6dfd8;
       --text-ink: #141413;
       --text-body: #3d3d3a;
       --text-muted: #6c6a64;
-      --text-muted-soft: #8e8b82;
       --border-hairline: #d1cfc5;
       --accent-olive: #788c5d;
-      --accent-sky: #6a9bcc;
       --accent-fig: #c46686;
-      --accent-clay: #d97757;
+      --font-prose: 'Newsreader', Georgia, serif;
+      --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, monospace;
     }
-
-    [data-theme="dark"] {
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg-canvas: #181715;
+        --bg-surface-soft: #1f1e1b;
+        --bg-surface-card: #252320;
+        --bg-surface-strong: #2f2d29;
+        --bg-code: #111110;
+        --accent-primary: #d97757;
+        --accent-primary-active: #c6613f;
+        --accent-disabled: #3a3733;
+        --text-ink: #faf9f5;
+        --text-body: #d1cfc5;
+        --text-muted: #a09d96;
+        --border-hairline: #33312d;
+        --accent-olive: #8fa870;
+        --accent-fig: #d97a9a;
+      }
+    }
+    :root[data-theme="dark"] {
       --bg-canvas: #181715;
       --bg-surface-soft: #1f1e1b;
       --bg-surface-card: #252320;
       --bg-surface-strong: #2f2d29;
-      --bg-code-surface: #111110;
+      --bg-code: #111110;
       --accent-primary: #d97757;
       --accent-primary-active: #c6613f;
       --accent-disabled: #3a3733;
       --text-ink: #faf9f5;
       --text-body: #d1cfc5;
       --text-muted: #a09d96;
-      --text-muted-soft: #78756e;
       --border-hairline: #33312d;
       --accent-olive: #8fa870;
-      --accent-sky: #7eb0e2;
       --accent-fig: #d97a9a;
-      --accent-clay: #d97757;
     }
 
-    * {
-      box-sizing: border-box;
-    }
-
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
     body {
       margin: 0;
-      background-color: var(--bg-canvas);
+      background: var(--bg-canvas);
       color: var(--text-ink);
-      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      transition: background-color 0.2s ease, color 0.2s ease;
-      overflow-x: hidden;
+      font: 14px/1.45 var(--font-ui);
+      display: flex;
     }
+    button, select, textarea { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 
-    .font-display-serif {
-      font-family: 'Cormorant Garamond', 'Newsreader', Georgia, serif;
-      letter-spacing: -0.02em;
+    /* Sidebar */
+    #sidebar {
+      width: 260px;
+      flex-shrink: 0;
+      background: var(--bg-surface-soft);
+      border-right: 1px solid var(--border-hairline);
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      gap: 8px;
     }
-
-    .font-prose-serif {
-      font-family: 'Newsreader', Georgia, serif;
-      line-height: 1.68;
-      font-size: 16.5px;
-      color: var(--text-ink);
+    #sidebar .brand { font: 500 20px/1.2 var(--font-prose); padding: 4px 6px 8px; }
+    #conversation-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+    .conv-item {
+      display: flex; align-items: center; gap: 4px;
+      border-radius: 8px;
     }
-
-    .font-mono-tech {
-      font-family: 'JetBrains Mono', monospace;
-    }
-
-    .claude-surface-soft {
-      background-color: var(--bg-surface-soft);
-      border-color: var(--border-hairline);
-    }
-
-    .claude-surface-card {
-      background-color: var(--bg-surface-card);
-      border: 1px solid var(--border-hairline);
-    }
-
-    .claude-surface-strong {
-      background-color: var(--bg-surface-strong);
-      border: 1px solid var(--border-hairline);
-    }
-
-    .claude-hairline {
-      border-color: var(--border-hairline);
-    }
-
-    .claude-btn-primary {
-      background-color: var(--accent-primary);
-      color: #ffffff;
-      transition: background-color 0.15s ease, transform 0.1s ease;
-    }
-
-    .claude-btn-primary:hover:not(:disabled) {
-      background-color: var(--accent-primary-active);
-    }
-
-    .claude-btn-primary:disabled {
-      background-color: var(--accent-disabled);
-      color: var(--text-muted-soft);
-      cursor: not-allowed;
-    }
-
-    .claude-pill {
-      background-color: var(--bg-surface-soft);
-      border: 1px solid var(--border-hairline);
+    .conv-item button.open {
+      flex: 1; min-width: 0; text-align: left; background: none; border: 0;
+      padding: 7px 8px; border-radius: 8px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       color: var(--text-body);
-      transition: background-color 0.15s ease, border-color 0.15s ease;
     }
+    .conv-item.active button.open, .conv-item button.open:hover { background: var(--bg-surface-strong); color: var(--text-ink); }
+    .conv-item button.delete {
+      background: none; border: 0; color: var(--text-muted); padding: 4px 8px; border-radius: 6px; visibility: hidden;
+    }
+    .conv-item:hover button.delete, .conv-item.active button.delete { visibility: visible; }
+    .conv-item button.delete:hover { color: var(--accent-fig); }
 
-    .claude-pill:hover {
-      background-color: var(--bg-surface-strong);
+    .btn {
+      border: 1px solid var(--border-hairline);
+      background: var(--bg-canvas);
+      border-radius: 8px;
+      padding: 7px 12px;
     }
+    .btn:hover { background: var(--bg-surface-strong); }
+    .btn-primary {
+      border: 0; border-radius: 10px; padding: 8px 14px;
+      background: var(--accent-primary); color: #fff; font-weight: 500;
+    }
+    .btn-primary:hover { background: var(--accent-primary-active); }
+    .btn-primary:disabled { background: var(--accent-disabled); color: var(--text-muted); cursor: default; }
 
-    .claude-pill-active {
-      background-color: var(--accent-primary);
-      border-color: var(--accent-primary);
-      color: #ffffff;
+    /* Main column */
+    main { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; }
+    header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 16px; border-bottom: 1px solid var(--border-hairline);
+      min-height: 48px;
     }
+    header .title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); }
+    #btn-sidebar { display: none; }
 
-    /* Subtle custom scrollbars */
-    ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
+    #scroll { flex: 1; overflow-y: auto; padding: 24px 16px; }
+    #messages { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+    #empty-state { max-width: 760px; margin: 12vh auto 0; text-align: center; }
+    #empty-state h1 { font: 400 34px/1.2 var(--font-prose); margin: 0 0 8px; }
+    #empty-state p { color: var(--text-muted); margin: 0; }
+
+    .msg-user {
+      align-self: flex-end; max-width: 85%;
+      background: var(--bg-surface-strong); border-radius: 16px; padding: 10px 14px;
+      white-space: pre-wrap; overflow-wrap: anywhere;
     }
-    ::-webkit-scrollbar-track {
-      background: transparent;
+    .msg-user.excluded { opacity: .6; }
+    .msg-assistant { font: 16.5px/1.65 var(--font-prose); color: var(--text-ink); overflow-wrap: anywhere; }
+    .msg-assistant p { margin: 0 0 .8em; }
+    .msg-assistant h1, .msg-assistant h2, .msg-assistant h3, .msg-assistant h4 { font-weight: 500; line-height: 1.3; margin: 1.1em 0 .5em; }
+    .msg-assistant ul, .msg-assistant ol { margin: 0 0 .8em; padding-left: 1.4em; }
+    .msg-assistant a { color: var(--accent-primary); }
+    .msg-assistant code {
+      font: 13px/1.5 var(--font-mono); background: var(--bg-surface-card);
+      padding: 1px 5px; border-radius: 4px;
     }
-    ::-webkit-scrollbar-thumb {
-      background: var(--border-hairline);
-      border-radius: 9999px;
+    .code-block { margin: 0 0 .9em; border-radius: 12px; overflow: hidden; background: var(--bg-code); }
+    .code-block .bar {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 4px 10px; font: 12px var(--font-mono); color: #a09d96;
+    }
+    .code-block .bar button { background: none; border: 0; color: #a09d96; font: 12px var(--font-ui); }
+    .code-block .bar button:hover { color: #faf9f5; }
+    .code-block pre { margin: 0; padding: 4px 14px 14px; overflow-x: auto; }
+    .code-block pre code { background: none; padding: 0; color: var(--text-code); }
+
+    details.thinking {
+      margin: 0 0 12px; border: 1px solid var(--border-hairline); border-radius: 12px;
+      background: var(--bg-surface-soft); font: 13.5px/1.55 var(--font-ui);
+    }
+    details.thinking summary { padding: 8px 12px; color: var(--text-muted); cursor: pointer; }
+    details.thinking .body { padding: 0 12px 10px; color: var(--text-body); white-space: pre-wrap; }
+
+    .notice {
+      font: 13px/1.45 var(--font-ui); border-radius: 10px; padding: 8px 12px; margin: 0 0 10px;
+      background: var(--bg-surface-card); color: var(--text-body);
+    }
+    .notice.error { border-left: 3px solid var(--accent-fig); }
+    .meta { font: 12px/1.4 var(--font-mono); color: var(--text-muted); margin-top: 4px; }
+    .cursor::after { content: "▍"; color: var(--accent-primary); animation: blink 1s steps(2) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* Composer */
+    #composer-wrap { padding: 0 16px 16px; }
+    #composer {
+      max-width: 760px; margin: 0 auto; background: var(--bg-surface-card);
+      border: 1px solid var(--border-hairline); border-radius: 16px; padding: 10px;
+    }
+    #prompt {
+      width: 100%; resize: none; border: 0; outline: 0; background: transparent;
+      min-height: 44px; max-height: 240px; padding: 4px 6px; font-size: 15px;
+    }
+    #composer .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    #composer .row .spacer { flex: 1; }
+    #composer select {
+      border: 1px solid var(--border-hairline); background: var(--bg-canvas);
+      border-radius: 999px; padding: 4px 10px; font-size: 12.5px;
+    }
+    #composer label { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
+
+    #toast {
+      position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+      background: var(--text-ink); color: var(--bg-canvas); padding: 8px 14px; border-radius: 10px;
+      font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    #toast.show { opacity: 1; }
+
+    @media (max-width: 760px) {
+      #sidebar { position: fixed; inset: 0 auto 0 0; z-index: 10; transform: translateX(-100%); transition: transform .2s; }
+      body.sidebar-open #sidebar { transform: none; box-shadow: 0 0 0 100vmax rgba(0,0,0,.3); }
+      #btn-sidebar { display: inline-block; }
+      .msg-user { max-width: 100%; }
     }
   </style>
 </head>
-<body class="h-screen w-screen flex flex-col overflow-hidden select-none sm:select-auto">
+<body>
+  <aside id="sidebar" aria-label="Conversations">
+    <div class="brand">cod.ai</div>
+    <button id="btn-new" type="button" class="btn-primary">New chat</button>
+    <nav id="conversation-list"></nav>
+  </aside>
 
-  <!-- TOP STATUS & TELEMETRY RIBBON -->
-  <header class="h-12 shrink-0 px-3 sm:px-5 flex items-center justify-between border-b claude-surface-soft claude-hairline z-20">
-    <div class="flex items-center gap-2.5 min-w-0">
-      <button id="btn-toggle-sidebar" type="button" class="p-1.5 rounded-lg claude-pill text-xs flex items-center gap-1.5" title="Toggle Left Navigation &amp; Pi Session DAG">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12"/></svg>
-        <span class="hidden md:inline font-medium">Sessions</span>
-      </button>
+  <main>
+    <header>
+      <button id="btn-sidebar" type="button" class="btn" aria-label="Show conversations">☰</button>
+      <div class="title" id="conv-title">New chat</div>
+      <button id="btn-theme" type="button" class="btn" aria-label="Toggle dark mode">Theme</button>
+    </header>
 
-      <!-- ANTHROP\C & cod.ai Wordmark -->
-      <div class="flex items-center gap-2">
-        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-xs font-bold" style="background-color: var(--accent-primary);">✹</span>
-        <span class="font-display-serif text-xl font-semibold tracking-tight">Claude</span>
-        <span class="font-mono-tech text-[11px] uppercase px-1.5 py-0.5 rounded claude-surface-strong" style="color: var(--accent-primary);">cod.ai \\ Opus 5.5</span>
+    <div id="scroll">
+      <div id="empty-state">
+        <h1>What are we building?</h1>
+        <p id="empty-sub">Replies stream from the Claude API through the local cod.ai server.</p>
       </div>
-
-      <!-- Active Session Title Badge (20_session_title.md) -->
-      <span id="active-session-title-badge" class="hidden lg:inline-block truncate max-w-[240px] text-xs px-2.5 py-1 rounded-full claude-surface-card" style="color: var(--text-muted);">
-        Dual-Polarity Prefix Cache Architecture
-      </span>
+      <div id="messages" aria-live="polite"></div>
     </div>
 
-    <!-- Center: Live 3-Layer Cache, 5-Min TTL Clock & Attention Budget Governor -->
-    <div class="hidden xl:flex items-center gap-3 font-mono-tech text-[11px]">
-      <!-- 3-Layer SHA-256 Lock -->
-      <button id="btn-inspect-cache" type="button" class="px-2.5 py-1 rounded-md claude-pill flex items-center gap-1.5" title="Inspect 3-Layer Cache-Control Assembler &amp; SHA-256 Prefix Locks">
-        <span class="w-2 h-2 rounded-full" style="background-color: var(--accent-olive);"></span>
-        <span>L1/L2 SHA-256: <strong id="header-prefix-hash">8f9c..4a1e</strong></span>
-      </button>
-
-      <!-- 5-Minute TTL Countdown (Measured from Request Start) -->
-      <div class="px-2.5 py-1 rounded-md claude-surface-card flex items-center gap-2">
-        <span id="ttl-indicator-dot" class="w-2 h-2 rounded-full" style="background-color: var(--accent-olive);"></span>
-        <span>5m TTL: <strong id="ttl-countdown-text">04:42</strong></span>
-        <button id="btn-ttl-keepalive" type="button" class="px-1.5 py-0.5 rounded text-[10px] claude-btn-primary" title="Send 1-Token Ephemeral Cache Keep-Alive Ping ($0.05x read rate)">Ping</button>
-      </div>
-
-      <!-- 60-80% Attention Budget Governor -->
-      <div class="px-2.5 py-1 rounded-md claude-surface-card flex items-center gap-2">
-        <span>Attn Budget: <strong id="header-budget-pct">18.5%</strong></span>
-        <div class="w-16 h-2 rounded-full overflow-hidden" style="background-color: var(--bg-surface-strong);">
-          <div id="header-budget-bar" class="h-full transition-all duration-300" style="width: 18.5%; background-color: var(--accent-olive);"></div>
+    <div id="composer-wrap">
+      <form id="composer">
+        <textarea id="prompt" rows="2" placeholder="Message Claude… (Enter to send, Shift+Enter for a new line)" aria-label="Message"></textarea>
+        <div class="row">
+          <select id="select-model" aria-label="Model"></select>
+          <label>Effort <select id="select-effort" aria-label="Effort"></select></label>
+          <label>Thinking <select id="select-thinking" aria-label="Thinking display">
+            <option value="summarized">summarized</option>
+            <option value="omitted">hidden</option>
+          </select></label>
+          <span class="spacer"></span>
+          <button id="btn-send" type="submit" class="btn-primary" disabled>Send</button>
         </div>
-      </div>
-
-      <!-- Pi Cache Re-billed Meter -->
-      <div class="px-2.5 py-1 rounded-md claude-surface-card">
-        <span>Re-billed: <strong id="header-rebilled-usd" style="color: var(--accent-olive);">$0.0000</strong></span>
-      </div>
+      </form>
     </div>
+  </main>
 
-    <!-- Right Controls: Endpoint Config, Workbench Toggle, Theme Toggle -->
-    <div class="flex items-center gap-2">
-      <button id="btn-open-endpoint-modal" type="button" class="px-2.5 py-1.5 rounded-lg claude-pill text-xs font-medium flex items-center gap-1.5">
-        <span id="endpoint-status-dot" class="w-2 h-2 rounded-full" style="background-color: var(--accent-olive);"></span>
-        <span id="endpoint-active-label" class="truncate max-w-[130px]">Anthropic / Proxy</span>
-        <svg class="w-3.5 h-3.5 opacity-75" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-      </button>
-
-      <button id="btn-toggle-workbench" type="button" class="px-2.5 py-1.5 rounded-lg claude-pill text-xs font-medium flex items-center gap-1.5">
-        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/></svg>
-        <span class="hidden sm:inline">Artifacts</span>
-        <span id="artifact-count-badge" class="font-mono-tech text-[10px] px-1.5 py-0.2 rounded-full text-white" style="background-color: var(--accent-primary);">3</span>
-      </button>
-
-      <button id="btn-toggle-theme" type="button" class="p-1.5 rounded-lg claude-pill text-xs" title="Toggle Cream Light / Obsidian Dark Surface Mode">
-        <span id="theme-icon-label">☾ Dark</span>
-      </button>
-    </div>
-  </header>
-
-  <!-- MAIN WORKSPACE BODY: Left Sidebar + Center Chat + Right Artifacts/Telemetry Drawer -->
-  <div class="flex-1 flex min-h-0 overflow-hidden relative">
-
-    <!-- 1. LEFT SIDEBAR: Pi Session Tree DAG (/tree), Specialist Fleet & Away Summary -->
-    <aside id="left-sidebar" class="w-72 shrink-0 border-r claude-surface-soft claude-hairline flex flex-col justify-between overflow-y-auto transition-all duration-200 z-10">
-      <div class="p-3.5 space-y-4">
-        <!-- New Chat + COD_SIMPLE Toggle -->
-        <div class="flex items-center gap-2">
-          <button id="btn-new-session" type="button" class="flex-1 py-2 px-3 rounded-xl claude-btn-primary text-xs font-medium flex items-center justify-center gap-1.5">
-            <span>+ New Session Branch</span>
-          </button>
-          <button id="btn-trigger-compact" type="button" class="py-2 px-2.5 rounded-xl claude-pill text-xs font-mono-tech" title="Run Stage 2 Compact Service (9-Section Summary)">
-            Compact
-          </button>
-        </div>
-
-        <!-- Dual-Polarity Mode Switcher (Invariant #3) -->
-        <div class="p-2.5 rounded-xl claude-surface-card space-y-2">
-          <div class="flex items-center justify-between">
-            <span class="font-mono-tech text-[10px] uppercase tracking-wider" style="color: var(--text-muted);">System Polarity Mode</span>
-            <span class="font-mono-tech text-[10px] px-1.5 py-0.5 rounded" style="background-color: var(--bg-surface-strong); color: var(--accent-primary);">Layer 3 Safe</span>
-          </div>
-          <div class="grid grid-cols-2 gap-1.5">
-            <button id="btn-mode-architect" type="button" class="py-1.5 px-2 rounded-lg text-xs font-medium claude-pill-active">
-              Mode A: Architect
-            </button>
-            <button id="btn-mode-implementer" type="button" class="py-1.5 px-2 rounded-lg text-xs font-medium claude-pill">
-              Mode B: Surgical
-            </button>
-          </div>
-          <p id="polarity-mode-desc" class="text-[11px] leading-snug" style="color: var(--text-muted);">
-            Holistic Web Architect: GOAL XML framing, &gt;100-line 4-stage iterative drafting, zero Bash log noise.
-          </p>
-        </div>
-
-        <!-- @heretek-ai/pi-configs Specialist Fleet Selector (74 Specialists) -->
-        <div class="p-2.5 rounded-xl claude-surface-card space-y-1.5">
-          <label for="select-pi-specialist" class="block font-mono-tech text-[10px] uppercase tracking-wider" style="color: var(--text-muted);">
-            @heretek-ai/pi-configs Fleet (v1.3)
-          </label>
-          <select id="select-pi-specialist" class="w-full p-1.5 rounded-lg text-xs claude-surface-soft border claude-hairline focus:outline-none">
-            <option value="holistic-web-architect">#72 holistic-web-architect (Guild 1)</option>
-            <option value="system-architect">#04 system-architect (Guild 1)</option>
-            <option value="gui-visual-critic">#11 gui-visual-critic (Guild 2)</option>
-            <option value="ui-ux-designer">#13 ui-ux-designer (Guild 2)</option>
-            <option value="ts-node-fullstack">#19 ts-node-fullstack (Guild 3)</option>
-            <option value="rust-systems-spec">#20 rust-systems-spec (Guild 3)</option>
-            <option value="python-backend-spec">#22 python-backend-spec (Guild 3)</option>
-            <option value="git-drift-coord">#45 git-drift-coord (Guild 5)</option>
-            <option value="adversarial-verifier">#74 adversarial-verifier (Guild 6)</option>
-            <option value="binary-reverse-engineer">#53 binary-reverse-engineer (Guild 7)</option>
-            <option value="attention-budget-governor">#73 attention-budget-governor (Guild 8)</option>
-            <option value="ast-structural-refactorer">#64 ast-structural-refactorer (Guild 8)</option>
-          </select>
-          <div class="text-[11px] flex items-center justify-between pt-0.5" style="color: var(--text-muted);">
-            <span>Charter Switch Cost:</span>
-            <span class="font-mono-tech font-medium" style="color: var(--accent-olive);">0 Re-billed Tok</span>
-          </div>
-        </div>
-
-        <!-- Pi Session Tree DAG (`session.jsonl` /tree explorer) -->
-        <div class="space-y-1.5">
-          <div class="flex items-center justify-between px-1">
-            <span class="font-mono-tech text-[10px] uppercase tracking-wider" style="color: var(--text-muted);">Pi Session Tree (/tree DAG)</span>
-            <span id="dag-node-count" class="font-mono-tech text-[10px]" style="color: var(--text-muted);">4 nodes</span>
-          </div>
-          <div id="dag-tree-list" class="space-y-1">
-            <!-- Populated dynamically by JS -->
-          </div>
-        </div>
-
-        <!-- Stateless Haiku Away Summary Card (22_away_summary.md) -->
-        <div class="p-2.5 rounded-xl claude-surface-card space-y-1">
-          <div class="flex items-center justify-between">
-            <span class="font-mono-tech text-[10px] uppercase tracking-wider" style="color: var(--text-muted);">Idle Recap (Haiku 5.5)</span>
-            <span class="font-mono-tech text-[9px] px-1.5 py-0.5 rounded claude-surface-strong">skipCacheWrite</span>
-          </div>
-          <p id="away-summary-text" class="text-[11px] leading-relaxed" style="color: var(--text-body);">
-            Completed Phase 0–5 verification with 100% cache hit preservation across Layer 1 &amp; Layer 2 prefixes. Active leaf on e4 (Claude Web Opus 5.5 GUI synthesis).
-          </p>
-        </div>
-      </div>
-
-      <!-- Sidebar Footer: Proxmox Sandbox & Security Proxy Status -->
-      <div class="p-3 border-t claude-hairline text-[11px] space-y-1" style="color: var(--text-muted);">
-        <div class="flex items-center justify-between">
-          <span>Containment Perimeter:</span>
-          <span class="font-mono-tech text-[10px] px-1.5 py-0.5 rounded claude-surface-card" style="color: var(--accent-olive);">bwrap + 127.0.0.1:3128</span>
-        </div>
-        <div class="flex items-center justify-between">
-          <span>API Key Vault:</span>
-          <span class="font-mono-tech text-[10px]">Isolated at Proxy</span>
-        </div>
-      </div>
-    </aside>
-
-    <!-- 2. CENTER COLUMN: Claude Web Opus 5.5 Editorial Stream & Floating Composer -->
-    <main class="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
-
-      <!-- Scrollable Conversation Stream -->
-      <div id="chat-scroll-container" class="flex-1 overflow-y-auto px-4 sm:px-8 py-6">
-        <div class="max-w-[740px] mx-auto space-y-6">
-
-          <!-- Editorial Greeting Banner -->
-          <div class="text-center py-3 space-y-1.5 border-b claude-hairline pb-5">
-            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full claude-surface-card text-xs font-mono-tech mb-1">
-              <span style="color: var(--accent-primary);">✹ ANTHROP\C</span>
-              <span>·</span>
-              <span id="greeting-model-pill">claude-opus-5-5 (1M Context · Adaptive Thinking)</span>
-            </div>
-            <h1 class="font-display-serif text-3xl sm:text-4xl font-normal tracking-tight">
-              Good evening, Argon. What shall we architect?
-            </h1>
-            <p class="text-xs sm:text-sm max-w-xl mx-auto" style="color: var(--text-muted);">
-              Full $n^2$ in-context self-attention purity paired with 3-Layer byte-identical prefix caching, Pi DAG branching, and live endpoint routing.
-            </p>
-
-            <!-- Quick Starter Prompt Chips -->
-            <div class="flex flex-wrap items-center justify-center gap-2 pt-2">
-              <button type="button" data-starter="architect-gui" class="starter-chip px-3 py-1.5 rounded-full text-xs claude-pill">
-                ✦ Synthesize &gt;100-Line Module (Mode A Loop)
-              </button>
-              <button type="button" data-starter="explore-repo" class="starter-chip px-3 py-1.5 rounded-full text-xs claude-pill">
-                🔍 Spawn Read-Only Explore Agent (&gt;3 Queries)
-              </button>
-              <button type="button" data-starter="run-verifier" class="starter-chip px-3 py-1.5 rounded-full text-xs claude-pill">
-                🛡️ Trigger Adversarial Verifier (5-Step Baseline)
-              </button>
-              <button type="button" data-starter="test-classifier" class="starter-chip px-3 py-1.5 rounded-full text-xs claude-pill">
-                ⚡ Test 2-Stage Auto-Mode Classifier
-              </button>
-            </div>
-          </div>
-
-          <!-- Dynamic Conversation Messages Container -->
-          <div id="chat-messages-list" class="space-y-6">
-            <!-- Populated by JS -->
-          </div>
-
-        </div>
-      </div>
-
-      <!-- Floating Claude Web Opus 5.5 Composer Box -->
-      <div class="shrink-0 px-4 sm:px-8 pb-4 pt-2 bg-gradient-to-t from-[var(--bg-canvas)] to-transparent">
-        <div class="max-w-[740px] mx-auto">
-          <form id="chat-composer-form" class="rounded-2xl claude-surface-card p-3 transition-all">
-            <textarea
-              id="chat-prompt-input"
-              rows="3"
-              placeholder="Reply to Claude Opus 5.5... (Use /specialist, /goal, /tree, or ask to architect a >100-line module)"
-              class="w-full bg-transparent resize-none border-0 focus:outline-none text-sm sm:text-[15px] leading-relaxed placeholder:text-[var(--text-muted-soft)]"
-            ></textarea>
-
-            <!-- Bottom Composer Control Bar: Model Lock, Effort (5 Tiers), Thinking Display, Tools & Send -->
-            <div class="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t claude-hairline mt-1">
-              <div class="flex flex-wrap items-center gap-1.5">
-                <!-- Frontier Model Selector (with Model-Affinity Lock protection) -->
-                <select id="select-model" aria-label="Select Claude Model" class="px-2.5 py-1 rounded-full text-xs font-medium claude-pill focus:outline-none cursor-pointer">
-                  <option value="claude-opus-5-5" selected>Claude Opus 5.5 (1M · 512 min-cache)</option>
-                  <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (1M · 512 min-cache)</option>
-                  <option value="claude-fable-5-1">Claude Fable 5.1 (1M · 0.025x cache read)</option>
-                  <option value="claude-opus-4-8">Claude Opus 4.8 (1M · 1,024 min-cache)</option>
-                  <option value="claude-haiku-5-5">Claude Haiku 5.5 (Stateless Utility)</option>
-                  <option value="custom-endpoint-model">Custom Endpoint Model</option>
-                </select>
-
-                <!-- Verified Claude Opus 5.5 Effort Selector (`output_config.effort`) -->
-                <div class="flex items-center rounded-full claude-pill px-2 py-0.5 text-xs">
-                  <span class="font-mono-tech text-[10px] mr-1" style="color: var(--text-muted);">Effort:</span>
-                  <select id="select-effort" aria-label="Select Effort Level" class="bg-transparent text-xs font-medium focus:outline-none cursor-pointer">
-                    <option value="low">low</option>
-                    <option value="medium" selected>medium (Opus 5.5 default)</option>
-                    <option value="high">high</option>
-                    <option value="xhigh">xhigh (30m+ agentic)</option>
-                    <option value="max">max (frontier)</option>
-                  </select>
-                </div>
-
-                <!-- Adaptive Thinking Display Mode (`thinking.display`) -->
-                <div class="flex items-center rounded-full claude-pill px-2 py-0.5 text-xs">
-                  <span class="font-mono-tech text-[10px] mr-1" style="color: var(--text-muted);">Thinking:</span>
-                  <select id="select-thinking-display" aria-label="Select Thinking Display Mode" class="bg-transparent text-xs font-medium focus:outline-none cursor-pointer">
-                    <option value="summarized" selected>adaptive · summarized</option>
-                    <option value="updates">adaptive · updates (beta)</option>
-                    <option value="omitted">adaptive · omitted (fast TTFT)</option>
-                  </select>
-                </div>
-
-                <!-- ToolSearch Catalog Quick Button -->
-                <button id="btn-open-toolsearch" type="button" class="px-2.5 py-1 rounded-full text-xs font-mono-tech claude-pill" title="Search Deferred MCP Tools (defer_loading: true)">
-                  + ToolSearch (12 deferred)
-                </button>
-              </div>
-
-              <div class="flex items-center gap-2">
-                <span id="composer-token-est" class="font-mono-tech text-[11px]" style="color: var(--text-muted);">0 tok</span>
-                <button id="btn-send-prompt" type="submit" class="px-3.5 py-1.5 rounded-xl claude-btn-primary text-xs font-medium flex items-center gap-1.5">
-                  <span>Send</span>
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18"/></svg>
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      </div>
-    </main>
-
-    <!-- 3. RIGHT SPLIT-SCREEN WORKBENCH: <antArtifact> Viewer, /skill doctor Telemetry, & Security Classifier -->
-    <section id="right-workbench" class="w-full lg:w-[48%] xl:w-[46%] shrink-0 border-l claude-surface-soft claude-hairline flex flex-col h-full overflow-hidden transition-all duration-200">
-      <!-- Workbench Top Bar -->
-      <div class="h-11 shrink-0 px-4 border-b claude-hairline flex items-center justify-between">
-        <div class="flex items-center gap-1.5">
-          <button id="tab-workbench-artifact" type="button" class="px-2.5 py-1 rounded-lg text-xs font-medium claude-pill-active">
-            &lt;antArtifact&gt; Canvas
-          </button>
-          <button id="tab-workbench-telemetry" type="button" class="px-2.5 py-1 rounded-lg text-xs font-medium claude-pill">
-            /skill doctor &amp; Cache
-          </button>
-          <button id="tab-workbench-security" type="button" class="px-2.5 py-1 rounded-lg text-xs font-medium claude-pill">
-            Security &amp; Critique
-          </button>
-          <button id="tab-workbench-payload" type="button" class="px-2.5 py-1 rounded-lg text-xs font-medium claude-pill">
-            API Payload
-          </button>
-        </div>
-
-        <button id="btn-close-workbench" type="button" class="p-1 rounded-lg claude-pill text-xs" title="Close Workbench Panel">
-          ✕
-        </button>
-      </div>
-
-      <!-- TAB 1: <antArtifact> Split-Screen Code & Interactive Preview -->
-      <div id="panel-workbench-artifact" class="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <!-- Artifact Selector & Mode A 4-Stage Pipeline Progress -->
-        <div class="p-3 border-b claude-hairline flex flex-wrap items-center justify-between gap-2 claude-surface-card">
-          <div class="flex items-center gap-2 min-w-0">
-            <span class="px-2 py-0.5 rounded text-[10px] font-mono-tech text-white" style="background-color: var(--accent-primary);">&lt;antArtifact&gt;</span>
-            <select id="select-active-artifact" aria-label="Select Artifact" class="text-xs font-medium bg-transparent border claude-hairline rounded-lg px-2 py-1 focus:outline-none">
-              <!-- Populated by JS -->
-            </select>
-          </div>
-
-          <div class="flex items-center gap-1.5">
-            <button id="btn-artifact-view-code" type="button" class="px-2.5 py-1 rounded-lg text-xs font-mono-tech claude-pill-active">Code</button>
-            <button id="btn-artifact-view-preview" type="button" class="px-2.5 py-1 rounded-lg text-xs font-mono-tech claude-pill">Live Preview</button>
-            <button id="btn-copy-artifact" type="button" class="px-2.5 py-1 rounded-lg text-xs claude-pill">Copy</button>
-            <button id="btn-download-artifact" type="button" class="px-2.5 py-1 rounded-lg text-xs claude-pill">Download</button>
-          </div>
-        </div>
-
-        <!-- Mode A Iterative Drafting 4-Stage Status Bar -->
-        <div class="px-3.5 py-2 border-b claude-hairline flex items-center justify-between text-[11px] font-mono-tech">
-          <div class="flex items-center gap-2">
-            <span style="color: var(--accent-olive);">● 1.Outline</span>
-            <span>→</span>
-            <span style="color: var(--accent-olive);">● 2.Section-Gen</span>
-            <span>→</span>
-            <span style="color: var(--accent-olive);">● 3.Review</span>
-            <span>→</span>
-            <span style="color: var(--accent-olive);">● 4.Zero-Truncation Verified</span>
-          </div>
-          <span id="artifact-line-badge" class="px-2 py-0.5 rounded claude-surface-strong">142 lines · 0 placeholders</span>
-        </div>
-
-        <!-- Code View -->
-        <div id="artifact-code-container" class="flex-1 overflow-auto p-4 font-mono-tech text-xs leading-relaxed" style="background-color: var(--bg-code-surface); color: #faf9f5;">
-          <pre id="artifact-code-pre" class="m-0 whitespace-pre-wrap break-words"></pre>
-        </div>
-
-        <!-- Live Component / Architecture Preview View -->
-        <div id="artifact-preview-container" class="hidden flex-1 overflow-auto p-5 space-y-4" style="background-color: var(--bg-canvas);">
-          <div id="artifact-live-preview-mount"></div>
-        </div>
-      </div>
-
-      <!-- TAB 2: /skill doctor & 3-Layer Cache Telemetry -->
-      <div id="panel-workbench-telemetry" class="hidden flex-1 overflow-y-auto p-4 space-y-4">
-        <div class="p-3.5 rounded-xl claude-surface-card space-y-2">
-          <div class="flex items-center justify-between">
-            <h3 class="font-display-serif text-lg font-medium">3-Layer Cache-Control Assembler</h3>
-            <span class="font-mono-tech text-[11px] px-2 py-0.5 rounded text-white" style="background-color: var(--accent-olive);">4/4 Breakpoints Valid</span>
-          </div>
-          <p class="text-xs" style="color: var(--text-muted);">
-            Prefix hierarchy hashed in strict order: <code>tools</code> → <code>system</code> → <code>messages</code>. Modifying any block before a breakpoint invalidates subsequent layers.
-          </p>
-          <div class="space-y-2 pt-1 font-mono-tech text-xs">
-            <div class="p-2.5 rounded-lg claude-surface-soft flex items-center justify-between">
-              <div>
-                <div class="font-medium">Layer 1: Static System + Core Primitives + ToolSearch</div>
-                <div class="text-[11px]" style="color: var(--text-muted);">cache_control: {"type": "ephemeral"} · Min Threshold: <span id="telemetry-min-tok">512</span> tok</div>
-              </div>
-              <span class="px-2 py-0.5 rounded claude-surface-strong" style="color: var(--accent-olive);">4,280 tok · LOCKED</span>
-            </div>
-            <div class="p-2.5 rounded-lg claude-surface-soft flex items-center justify-between">
-              <div>
-                <div class="font-medium">Layer 2: CLAUDE.md + AGENTS.md + Pinned Specs</div>
-                <div class="text-[11px]" style="color: var(--text-muted);">Delivered as User Turn #1 · cache_control: {"type": "ephemeral"}</div>
-              </div>
-              <span class="px-2 py-0.5 rounded claude-surface-strong" style="color: var(--accent-olive);">6,120 tok · LOCKED</span>
-            </div>
-            <div class="p-2.5 rounded-lg claude-surface-soft flex items-center justify-between">
-              <div>
-                <div class="font-medium">Layer 3: Append-Only DAG + &lt;system_reminder&gt; + tool_reference</div>
-                <div class="text-[11px]" style="color: var(--text-muted);">20-Block Lookback Window Active · Rolling Breakpoint #3</div>
-              </div>
-              <span id="telemetry-layer3-tok" class="px-2 py-0.5 rounded claude-surface-strong">174,600 tok</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- /skill doctor Metrics Grid -->
-        <div class="grid grid-cols-2 gap-3 font-mono-tech">
-          <div class="p-3 rounded-xl claude-surface-card">
-            <div class="text-[10px] uppercase" style="color: var(--text-muted);">Cache Hit / Write Ratio</div>
-            <div id="metric-cache-ratio" class="text-xl font-semibold mt-1" style="color: var(--accent-olive);">10.67x (91.4%)</div>
-            <div class="text-[11px] mt-0.5" style="color: var(--text-muted);">480K reads vs 45K writes</div>
-          </div>
-          <div class="p-3 rounded-xl claude-surface-card">
-            <div class="text-[10px] uppercase" style="color: var(--text-muted);">Two-Tier Compression</div>
-            <div class="text-xl font-semibold mt-1" style="color: var(--accent-sky);">0.25x (75% saved)</div>
-            <div class="text-[11px] mt-0.5" style="color: var(--text-muted);">760K → 190K + Top 5 Files</div>
-          </div>
-          <div class="p-3 rounded-xl claude-surface-card">
-            <div class="text-[10px] uppercase" style="color: var(--text-muted);">Retrieval Precision</div>
-            <div class="text-xl font-semibold mt-1" style="color: var(--accent-olive);">100.0%</div>
-            <div class="text-[11px] mt-0.5" style="color: var(--text-muted);">BM25 + 4x Filename Boost</div>
-          </div>
-          <div class="p-3 rounded-xl claude-surface-card">
-            <div class="text-[10px] uppercase" style="color: var(--text-muted);">Pi Cache Re-billed</div>
-            <div id="metric-rebilled-card" class="text-xl font-semibold mt-1" style="color: var(--accent-olive);">$0.0000</div>
-            <div class="text-[11px] mt-0.5" style="color: var(--text-muted);">0 unintended prefix misses</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- TAB 3: 2-Stage Auto-Mode Security Classifier & Critique -->
-      <div id="panel-workbench-security" class="hidden flex-1 overflow-y-auto p-4 space-y-4">
-        <div class="p-3.5 rounded-xl claude-surface-card space-y-2.5">
-          <h3 class="font-display-serif text-lg font-medium">Live 2-Stage Auto-Mode Security Classifier</h3>
-          <p class="text-xs" style="color: var(--text-muted);">
-            Modeled on <code>12_yolo_auto_mode_classifier.md</code>. Strips untrusted <code>tool_result</code> blocks before evaluation and decomposes shell pipes (<code>|</code>, <code>&amp;&amp;</code>, <code>;</code>).
-          </p>
-          <div class="flex gap-2">
-            <input id="input-security-probe" type="text" value="git status && pytest tests/ -v" class="flex-1 px-3 py-1.5 rounded-lg text-xs font-mono-tech claude-surface-soft border claude-hairline focus:outline-none" />
-            <button id="btn-run-security-probe" type="button" class="px-3 py-1.5 rounded-lg text-xs font-medium claude-btn-primary">Evaluate</button>
-          </div>
-          <div class="flex flex-wrap gap-1.5 pt-1">
-            <button type="button" data-sec-sample="git status && pytest tests/" class="sec-sample-btn px-2 py-0.5 rounded text-[11px] font-mono-tech claude-pill">Allow: git &amp;&amp; pytest</button>
-            <button type="button" data-sec-sample="git status | rm -rf /" class="sec-sample-btn px-2 py-0.5 rounded text-[11px] font-mono-tech claude-pill">Pipe Attack: | rm -rf /</button>
-            <button type="button" data-sec-sample="re-firewall unmask" class="sec-sample-btn px-2 py-0.5 rounded text-[11px] font-mono-tech claude-pill">Stage 2: re-firewall unmask</button>
-            <button type="button" data-sec-sample="cat src/cli.py" class="sec-sample-btn px-2 py-0.5 rounded text-[11px] font-mono-tech claude-pill">Mode B Ban: cat file</button>
-          </div>
-          <pre id="security-probe-output" class="p-3 rounded-lg font-mono-tech text-xs whitespace-pre-wrap" style="background-color: var(--bg-code-surface); color: #faf9f5;">Stage 1 Verdict: ALLOW (exit_code=0, blast_radius=1/10, tool_results_stripped=true)</pre>
-        </div>
-
-        <div class="p-3.5 rounded-xl claude-surface-card space-y-2">
-          <div class="flex items-center justify-between">
-            <h3 class="font-display-serif text-lg font-medium"><code>cod auto-mode critique</code> Auditor</h3>
-            <button id="btn-run-critique" type="button" class="px-2.5 py-1 rounded-lg text-xs claude-pill font-mono-tech">Audit Rules</button>
-          </div>
-          <pre id="critique-audit-output" class="p-3 rounded-lg font-mono-tech text-xs whitespace-pre-wrap" style="background-color: var(--bg-code-surface); color: #faf9f5;">Status: PASS — 4 allow_rules anchored (^), 4 soft_deny_rules active, 0 overlapping rule conflicts.</pre>
-        </div>
-      </div>
-
-      <!-- TAB 4: Live Outbound API Payload Inspector (Anthropic / Heretek Proxy / OpenAI) -->
-      <div id="panel-workbench-payload" class="hidden flex-1 overflow-y-auto p-4 space-y-3">
-        <div class="flex items-center justify-between">
-          <div>
-            <h3 class="font-display-serif text-lg font-medium">Live Wire Payload Inspector</h3>
-            <p class="text-xs" style="color: var(--text-muted);">Exact JSON body &amp; proxy headers assembled for your configured endpoint.</p>
-          </div>
-          <button id="btn-copy-payload" type="button" class="px-2.5 py-1 rounded-lg text-xs claude-pill font-mono-tech">Copy cURL</button>
-        </div>
-        <pre id="live-payload-json" class="p-3.5 rounded-xl font-mono-tech text-xs whitespace-pre-wrap overflow-x-auto" style="background-color: var(--bg-code-surface); color: #faf9f5;"></pre>
-      </div>
-    </section>
-
-  </div>
-
-  <!-- MODAL 1: CUSTOM ENDPOINT CONFIGURATION STUDIO -->
-  <div id="modal-endpoint-studio" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background-color: rgba(20, 20, 19, 0.65);">
-    <div class="w-full max-w-2xl rounded-2xl claude-surface-card p-6 space-y-4 max-h-[90vh] overflow-y-auto">
-      <div class="flex items-center justify-between border-b claude-hairline pb-3">
-        <div>
-          <span class="font-mono-tech text-[10px] uppercase tracking-wider" style="color: var(--accent-primary);">Proxmox Proxy &amp; BYOK Endpoint Studio</span>
-          <h2 class="font-display-serif text-2xl font-medium">Configure Custom LLM &amp; MCP Endpoint</h2>
-        </div>
-        <button id="btn-close-endpoint-modal" type="button" class="p-1.5 rounded-lg claude-pill text-xs">✕</button>
-      </div>
-
-      <!-- Quick Endpoint Presets -->
-      <div class="space-y-1.5">
-        <span class="text-xs font-medium">Endpoint Preset</span>
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <button type="button" data-ep-preset="anthropic" class="ep-preset-btn p-2.5 rounded-xl text-left claude-pill-active text-xs">
-            <div class="font-semibold">1. Anthropic Official</div>
-            <div class="font-mono-tech text-[10px] opacity-80 truncate">api.anthropic.com/v1/messages</div>
-          </button>
-          <button type="button" data-ep-preset="heretek" class="ep-preset-btn p-2.5 rounded-xl text-left claude-pill text-xs">
-            <div class="font-semibold">2. Heretek-AI Gateway</div>
-            <div class="font-mono-tech text-[10px] opacity-80 truncate">llm.heretek.one/v1 (via 3128)</div>
-          </button>
-          <button type="button" data-ep-preset="custom" class="ep-preset-btn p-2.5 rounded-xl text-left claude-pill text-xs">
-            <div class="font-semibold">3. Custom / Local Daemon</div>
-            <div class="font-mono-tech text-[10px] opacity-80 truncate">127.0.0.1:8642 / Ollama / vLLM</div>
-          </button>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-        <div class="sm:col-span-2 space-y-1">
-          <label for="ep-base-url" class="font-medium block">Endpoint Base URL</label>
-          <input id="ep-base-url" type="url" value="https://api.anthropic.com/v1/messages" class="w-full px-3 py-2 rounded-lg font-mono-tech claude-surface-soft border claude-hairline focus:outline-none" />
-        </div>
-
-        <div class="space-y-1">
-          <label for="ep-wire-protocol" class="font-medium block">Wire Protocol / Adapter</label>
-          <select id="ep-wire-protocol" class="w-full px-3 py-2 rounded-lg font-mono-tech claude-surface-soft border claude-hairline focus:outline-none">
-            <option value="anthropic-messages" selected>Anthropic Messages (/v1/messages)</option>
-            <option value="openai-chat">OpenAI Compatible (/v1/chat/completions)</option>
-            <option value="cod-ai-local-proxy">cod.ai Local Policy Proxy (127.0.0.1:8642)</option>
-          </select>
-        </div>
-
-        <div class="space-y-1">
-          <label for="ep-custom-model" class="font-medium block">Target Model Identifier</label>
-          <input id="ep-custom-model" type="text" value="claude-opus-5-5" class="w-full px-3 py-2 rounded-lg font-mono-tech claude-surface-soft border claude-hairline focus:outline-none" />
-        </div>
-
-        <div class="space-y-1">
-          <label for="ep-api-key" class="font-medium block">API Key (Stored in Proxy Vault Only)</label>
-          <input id="ep-api-key" type="password" placeholder="sk-ant-... or hk-... (never exposed to agent env)" class="w-full px-3 py-2 rounded-lg font-mono-tech claude-surface-soft border claude-hairline focus:outline-none" />
-        </div>
-
-        <div class="space-y-1">
-          <label for="ep-proxy-url" class="font-medium block">Proxmox Egress Quarantine Proxy (`re-firewall`)</label>
-          <input id="ep-proxy-url" type="text" value="http://127.0.0.1:3128" class="w-full px-3 py-2 rounded-lg font-mono-tech claude-surface-soft border claude-hairline focus:outline-none" />
-        </div>
-
-        <div class="sm:col-span-2 space-y-1">
-          <label for="ep-beta-headers" class="font-medium block">Active Beta &amp; Cache Headers</label>
-          <input id="ep-beta-headers" type="text" value="inline-tools-2026-09-15,mid-conversation-system-clear-at-2026-08-21,mid-conversation-output-config-2026-07-01" class="w-full px-3 py-2 rounded-lg font-mono-tech claude-surface-soft border claude-hairline focus:outline-none" />
-        </div>
-      </div>
-
-      <!-- Connection Test Output -->
-      <div id="ep-test-banner" class="p-3 rounded-xl claude-surface-soft font-mono-tech text-xs" style="color: var(--text-body);">
-        Ready to test endpoint connectivity or save to session profile. If direct browser CORS is restricted, requests automatically fail over to the local cod.ai architectural synthesizer.
-      </div>
-
-      <div class="flex items-center justify-between pt-2 border-t claude-hairline">
-        <button id="btn-test-endpoint" type="button" class="px-3.5 py-2 rounded-xl claude-pill text-xs font-medium">
-          ⚡ Test Endpoint &amp; Verify Allowlist
-        </button>
-        <div class="flex items-center gap-2">
-          <button id="btn-save-endpoint" type="button" class="px-4 py-2 rounded-xl claude-btn-primary text-xs font-medium">
-            Save &amp; Lock Endpoint Profile
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- MODAL 2: DEFERRED TOOLSEARCH CATALOG -->
-  <div id="modal-toolsearch" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background-color: rgba(20, 20, 19, 0.65);">
-    <div class="w-full max-w-lg rounded-2xl claude-surface-card p-5 space-y-3.5">
-      <div class="flex items-center justify-between border-b claude-hairline pb-2.5">
-        <div>
-          <span class="font-mono-tech text-[10px] uppercase" style="color: var(--accent-primary);">Invariant #2 · defer_loading: true</span>
-          <h3 class="font-display-serif text-xl font-medium">Deferred MCP ToolSearch Catalog</h3>
-        </div>
-        <button id="btn-close-toolsearch" type="button" class="p-1.5 rounded-lg claude-pill text-xs">✕</button>
-      </div>
-      <p class="text-xs" style="color: var(--text-muted);">
-        Search across deferred MCP servers (`tool_search_tool_bm25_20251119`). Matching tools expand via `tool_reference` blocks at the tail of Layer 3 so Layer 1's prefix cache is never invalidated.
-      </p>
-      <input id="input-toolsearch-query" type="text" placeholder="Search tools by keyword (e.g., github, postgres, ghidra, playwright)..." class="w-full px-3 py-2 rounded-lg text-xs font-mono-tech claude-surface-soft border claude-hairline focus:outline-none" />
-      <div id="toolsearch-results-list" class="space-y-1.5 max-h-60 overflow-y-auto font-mono-tech text-xs"></div>
-    </div>
-  </div>
-
-  <!-- TOAST NOTIFICATION BANNER -->
-  <div id="toast-banner" class="hidden fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-xl claude-surface-card shadow-lg text-xs font-mono-tech flex items-center gap-2 border claude-hairline">
-    <span style="color: var(--accent-primary);">✹</span>
-    <span id="toast-message-text">Action completed</span>
-  </div>
+  <div id="toast" role="status"></div>
 
   <script>
-    (function () {
-      "use strict";
+  (function () {
+    "use strict";
 
-      // --- 1. APPLICATION STATE ---
-      const state = {
-        theme: "light",
-        polarityMode: "MODE_A_ARCHITECT", // or "MODE_B_IMPLEMENTER"
-        specialistSlug: "holistic-web-architect",
-        lockedModel: "claude-opus-5-5",
-        effort: "medium",
-        thinkingDisplay: "summarized",
-        ttlRemainingSec: 282,
-        rebilledUsd: 0.0,
-        activeTokens: 185000,
-        contextWindow: 1000000,
-        endpoint: {
-          preset: "anthropic",
-          baseUrl: "https://api.anthropic.com/v1/messages",
-          protocol: "anthropic-messages",
-          customModel: "claude-opus-5-5",
-          apiKey: "",
-          proxyUrl: "http://127.0.0.1:3128",
-          betaHeaders: "inline-tools-2026-09-15,mid-conversation-system-clear-at-2026-08-21,mid-conversation-output-config-2026-07-01"
-        },
-        deferredTools: [
-          { name: "mcp_github_create_pr", server: "github", desc: "Create a GitHub Pull Request with structured diff summary", active: false },
-          { name: "mcp_postgres_readonly_query", server: "postgres", desc: "Execute parameterized read-only SQL query against analytics DB", active: false },
-          { name: "mcp_playwright_dom_audit", server: "playwright", desc: "Run headless Chromium WCAG 2.2 AA contrast and geometry audit", active: true },
-          { name: "mcp_ghidra_decompile_function", server: "rea-ghidra", desc: "Decompile binary function via Proxmox RE-Agent Ghidra headless", active: false },
-          { name: "mcp_radare2_cfg_graph", server: "rea-r2", desc: "Extract control-flow graph JSON via radare2 MCP", active: false },
-          { name: "mcp_ripwire_blast_radius", server: "ripwire", desc: "Compute zero-token structural call graph blast radius", active: true },
-          { name: "mcp_ast_grep_rewrite", server: "ast-grep", desc: "Execute syntactic AST pattern search and dry-run rewrite", active: false },
-          { name: "mcp_sentry_fetch_trace", server: "sentry", desc: "Retrieve production exception stack trace and breadcrumbs", active: false }
-        ],
-        dagNodes: [
-          { id: "e1", parentId: null, label: "e1 · Layer 1/2 Static Prefix Anchor", tokens: "10.4K tok", active: true },
-          { id: "e2", parentId: "e1", label: "e2 · Phase 0-1 OSINT & Pi Matrix", tokens: "48.2K tok", active: true },
-          { id: "e3", parentId: "e2", label: "e3 · Phase 2-5 Core Implementation", tokens: "142.0K tok", active: true },
-          { id: "e4", parentId: "e3", label: "e4 · Claude Web Opus 5.5 GUI Studio", tokens: "185.0K tok", active: true }
-        ],
-        activeLeafId: "e4",
-        artifacts: [
-          {
-            id: "art-cache-assembler",
-            title: "src/context/cache_assembler.py (3-Layer Ephemeral Cache Engine)",
-            path: "src/context/cache_assembler.py",
-            lines: 148,
-            previewType: "architecture-card",
-            code: `# src/context/cache_assembler.py — Verified 3-Layer Cache-Control Assembler
-from dataclasses import dataclass, field
-import hashlib
-import json
-from typing import Any
+    var STORAGE_KEY = "cod.ai.conversations.v1";
+    var THEME_KEY = "cod.ai.theme";
 
-MODEL_MIN_CACHE_TOKENS: dict[str, int] = {
-    "claude-fable-5-1": 512,
-    "claude-opus-5-5": 512,
-    "claude-sonnet-5-5": 512,
-    "claude-haiku-5-5": 512,
-    "claude-opus-4-8": 1024,
-    "claude-sonnet-4-6": 1024,
-    "claude-opus-4-7": 2048,
-    "claude-opus-4-6": 4096,
-    "claude-haiku-4-5": 4096,
-}
-
-class ThreeLayerCacheAssembler:
-    '''
-    Guarantees Invariant #1 (Byte-Identical Static Prefix) & Invariant #2 (Deferred ToolSearch):
-      - Layer 1: Static System Prompt + Non-Deferred Primitives + ToolSearch (Breakpoint #1)
-      - Layer 2: Static CLAUDE.md + AGENTS.md delivered as User Turn #1 (Breakpoint #2)
-      - Layer 3: Append-only DAG + <system_reminder> + tool_reference (Rolling Breakpoint #3)
-    '''
-    def __init__(self, model: str, system_prompt: str, layer2_context: str) -> None:
-        self.model = model
-        self.min_tokens = MODEL_MIN_CACHE_TOKENS.get(model, 1024)
-        self.system_blocks = [{
-            "type": "text",
-            "text": system_prompt,
-            "cache_control": {"type": "ephemeral"}
-        }]
-        self.layer2_msg = {
-            "role": "user",
-            "content": [{
-                "type": "text",
-                "text": f"<project_static_context>\\n{layer2_context}\\n</project_static_context>",
-                "cache_control": {"type": "ephemeral"}
-            }]
-        }
-        self.layer1_hash = hashlib.sha256(json.dumps(self.system_blocks).encode()).hexdigest()
-        self.layer2_hash = hashlib.sha256(json.dumps(self.layer2_msg).encode()).hexdigest()`
-          },
-          {
-            id: "art-pi-bridge",
-            title: "pi_configs_upstream/src/cod_ai_invariant_bridge.ts (Pi v1.3 Bridge)",
-            path: "pi_configs_upstream/src/cod_ai_invariant_bridge.ts",
-            lines: 112,
-            previewType: "pi-bridge-card",
-            code: `// @heretek-ai/pi-configs v1.3.0 — Cache-Safe Layer-3 Specialist Charter Switch
-export class CodAiPiInvariantBridge {
-  public createCacheSafeCharterSwitch(
-    parentNodeId: string,
-    specialistSlug: string,
-    charterMarkdown: string,
-    polarityMode: "MODE_A_ARCHITECT" | "MODE_B_IMPLEMENTER"
-  ) {
-    return {
-      id: \`node_\${Date.now()}_\${specialistSlug}\`,
-      parentId: parentNodeId,
-      role: "system",
-      clear_at: "never",
-      content: [{
-        type: "text",
-        text: \`<system_reminder type="charter_polarity_switch" specialist="\${specialistSlug}" mode="\${polarityMode}">\\n\${charterMarkdown}\\n</system_reminder>\`
-      }]
+    var config = {
+      default_model: "claude-opus-5-5",
+      models: [{ id: "claude-opus-5-5", label: "Claude Opus 5.5", default_effort: "medium" }],
+      effort_levels: ["low", "medium", "high", "xhigh", "max"]
     };
-  }
-}`
-          },
-          {
-            id: "art-style-guide",
-            title: "docs/04_claude_web_opus_5_5_style_guide.md (Claude DESIGN.md)",
-            path: "docs/04_claude_web_opus_5_5_style_guide.md",
-            lines: 126,
-            previewType: "style-guide-card",
-            code: `# Claude Web Opus 5.5 Visual Design System (DESIGN.md)
-- Primary Canvas (Light): #faf9f5 (Ivory Cream)
-- Primary Canvas (Dark):  #181715 (Warm Obsidian)
-- Brand Coral CTA:        #cc785c (Active: #a9583e)
-- Display & Prose Font:   Copernicus / Cormorant Garamond / Newsreader Serif
-- UI Chrome Font:         StyreneB / Inter Sans
-- Telemetry & Code Font:  Anthropic Mono / JetBrains Mono
-- Effort Tiers:           low | medium (Opus 5.5 default) | high | xhigh | max
-- Thinking Display:       adaptive (summarized | updates | omitted)`
-          }
-        ],
-        activeArtifactId: "art-cache-assembler",
-        artifactViewMode: "code", // "code" or "preview"
-        messages: [
-          {
-            id: "msg-1",
-            role: "user",
-            text: "Architect the Claude Web Opus 5.5 GUI for cod.ai with live custom endpoint configuration, 5-tier effort controls, adaptive thinking drawers, and 3-layer cache telemetry.",
-            timestamp: "01:18 AM"
-          },
-          {
-            id: "msg-2",
-            role: "assistant",
-            model: "claude-opus-5-5",
-            effort: "medium",
-            thinkingDisplay: "summarized",
-            thinkingSummary: "1. Audited shadcn.io/design/claude and shadcn.io/design/anthropic token tables (#faf9f5 ivory cream, #141413 slate ink, #cc785c terracotta coral, Copernicus/Newsreader serif body prose).\n2. Verified Claude Opus 5.5 API constraints: adaptive thinking is always active (thinking: {type: 'disabled'} returns HTTP 400); default effort is 'medium' with per-message effort updates via role: 'system' output_config.effort.\n3. Designed the Custom Endpoint Studio supporting Anthropic Official, Heretek-AI Proxmox Gateway (llm.heretek.one/v1 via 127.0.0.1:3128), and local OpenAI/FastAPI endpoints.",
-            signature: "EqQBCgIYAhIM1gbcDa9GJwZA2b9f8c7a3e...",
-            prose: "I've architected the **cod.ai Claude Web Opus 5.5 Studio** using the verified **Ivory Cream (`#faf9f5`)**, **Slate Ink (`#141413`)**, and **Terracotta Coral (`#cc785c`)** design tokens paired with our 3-Layer Cache-Control Assembler. You can inspect the live `<antArtifact>` modules on the right, switch between **Mode A (Holistic Web Architect)** and **Mode B (Surgical CLI Implementer)** without invalidating Layer 1, or click **Anthropic / Proxy** in the top bar to point the harness at any custom LLM endpoint.",
-            artifactId: "art-cache-assembler",
-            timestamp: "01:19 AM"
-          }
-        ]
-      };
+    var conversations = loadConversations();
+    var activeId = conversations.length ? conversations[0].id : null;
+    var inflight = null; // { controller, turn }
 
-      // Load saved endpoint config from localStorage safely
+    var el = {
+      list: document.getElementById("conversation-list"),
+      messages: document.getElementById("messages"),
+      empty: document.getElementById("empty-state"),
+      scroll: document.getElementById("scroll"),
+      title: document.getElementById("conv-title"),
+      form: document.getElementById("composer"),
+      prompt: document.getElementById("prompt"),
+      send: document.getElementById("btn-send"),
+      model: document.getElementById("select-model"),
+      effort: document.getElementById("select-effort"),
+      thinking: document.getElementById("select-thinking"),
+      toast: document.getElementById("toast")
+    };
+
+    // ---------- storage ----------
+
+    function loadConversations() {
       try {
-        const savedEp = localStorage.getItem("cod_ai_endpoint_config_v1");
-        if (savedEp) {
-          const parsed = JSON.parse(savedEp);
-          Object.assign(state.endpoint, parsed);
-        }
-      } catch (err) {
-        // Ignore storage errors in sandboxed iframes
+        var raw = localStorage.getItem(STORAGE_KEY);
+        var parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        return [];
       }
+    }
 
-      // --- 2. HELPER FUNCTIONS ---
-      function showToast(msg) {
-        const banner = document.getElementById("toast-banner");
-        const textEl = document.getElementById("toast-message-text");
-        if (!banner || !textEl) return;
-        textEl.textContent = msg;
-        banner.classList.remove("hidden");
-        if (window._codToastTimer) clearTimeout(window._codToastTimer);
-        window._codToastTimer = setTimeout(function () {
-          banner.classList.add("hidden");
-        }, 3200);
+    function saveConversations() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+      } catch (e) {
+        toast("Couldn't save this conversation in the browser (storage is full or blocked).");
       }
+    }
 
-      function estimateTokens(str) {
-        if (!str) return 0;
-        return Math.max(1, Math.ceil(str.length / 3.8));
+    function activeConversation() {
+      for (var i = 0; i < conversations.length; i++) {
+        if (conversations[i].id === activeId) return conversations[i];
       }
-
-      function getMinCacheTokens(model) {
-        const map = {
-          "claude-opus-5-5": 512,
-          "claude-sonnet-5-5": 512,
-          "claude-fable-5-1": 512,
-          "claude-haiku-5-5": 512,
-          "claude-opus-4-8": 1024
-        };
-        return map[model] || 1024;
-      }
-
-      // --- 3. RENDER FUNCTIONS ---
-      function renderDAGTree() {
-        const container = document.getElementById("dag-tree-list");
-        const countEl = document.getElementById("dag-node-count");
-        if (!container) return;
-        if (countEl) countEl.textContent = state.dagNodes.length + " nodes";
-        container.innerHTML = "";
-
-        state.dagNodes.forEach(function (node) {
-          const isLeaf = node.id === state.activeLeafId;
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "w-full text-left px-2.5 py-1.5 rounded-lg text-xs flex items-center justify-between transition-all " +
-            (isLeaf ? "claude-pill-active font-medium" : "claude-pill");
-          btn.innerHTML =
-            '<span class="truncate pr-2">' + node.label + '</span>' +
-            '<span class="font-mono-tech text-[10px] opacity-80 shrink-0">' + node.tokens + '</span>';
-          btn.addEventListener("click", function () {
-            state.activeLeafId = node.id;
-            renderDAGTree();
-            showToast("Moved active /tree leaf pointer to " + node.id + " (0 cache misses)");
-          });
-          container.appendChild(btn);
-        });
-      }
-
-      function renderMessages() {
-        const list = document.getElementById("chat-messages-list");
-        if (!list) return;
-        list.innerHTML = "";
-
-        state.messages.forEach(function (m) {
-          const wrapper = document.createElement("div");
-          if (m.role === "user") {
-            wrapper.className = "flex justify-end";
-            wrapper.innerHTML =
-              '<div class="max-w-[85%] rounded-2xl px-4 py-3 claude-surface-strong text-sm leading-relaxed">' +
-                '<div class="flex items-center justify-between gap-4 mb-1 text-[11px] font-mono-tech" style="color: var(--text-muted);">' +
-                  '<span>You · Layer 3 Append</span>' +
-                  '<span>' + m.timestamp + '</span>' +
-                '</div>' +
-                '<div></div>' +
-              '</div>';
-            wrapper.querySelector("div > div:last-child").textContent = m.text;
-          } else {
-            wrapper.className = "space-y-3";
-            const thinkingBadge = m.thinkingDisplay === "omitted"
-              ? "Adaptive Thinking (display: omitted · encrypted signature only)"
-              : "Adaptive Thinking (" + m.thinkingDisplay + " · effort: " + m.effort + ")";
-
-            const thinkingHtml =
-              '<details class="rounded-xl claude-surface-card overflow-hidden text-xs">' +
-                '<summary class="px-3.5 py-2 cursor-pointer font-mono-tech flex items-center justify-between select-none">' +
-                  '<span class="flex items-center gap-2">' +
-                    '<span style="color: var(--accent-primary);">✦</span>' +
-                    '<span>' + thinkingBadge + '</span>' +
-                  '</span>' +
-                  '<span class="text-[10px]" style="color: var(--text-muted);">sig: ' + (m.signature || "").slice(0, 16) + '...</span>' +
-                '</summary>' +
-                '<div class="px-3.5 py-2.5 border-t claude-hairline font-mono-tech text-[11px] whitespace-pre-wrap leading-relaxed" style="color: var(--text-body);">' +
-                  (m.thinkingDisplay === "omitted"
-                    ? "[Thinking text omitted for minimal TTFT; cryptographic signature preserved in multi-turn context]"
-                    : (m.thinkingSummary || "")) +
-                '</div>' +
-              '</details>';
-
-            let artifactCardHtml = "";
-            if (m.artifactId) {
-              const art = state.artifacts.find(function (a) { return a.id === m.artifactId; });
-              if (art) {
-                artifactCardHtml =
-                  '<div class="pt-1">' +
-                    '<button type="button" data-open-artifact="' + art.id + '" class="open-artifact-btn w-full sm:w-auto px-3.5 py-2.5 rounded-xl claude-surface-card hover:border-[var(--accent-primary)] transition-all flex items-center justify-between gap-4 text-left">' +
-                      '<div class="flex items-center gap-2.5">' +
-                        '<span class="w-8 h-8 rounded-lg flex items-center justify-center text-white font-mono-tech text-xs" style="background-color: var(--accent-primary);">&lt;/&gt;</span>' +
-                        '<div>' +
-                          '<div class="text-xs font-medium">' + art.title + '</div>' +
-                          '<div class="font-mono-tech text-[10px]" style="color: var(--text-muted);">' + art.lines + ' lines · Mode A 4-Stage Verified · Click to inspect</div>' +
-                        '</div>' +
-                      '</div>' +
-                      '<span class="font-mono-tech text-xs" style="color: var(--accent-primary);">Open →</span>' +
-                    '</button>' +
-                  '</div>';
-              }
-            }
-
-            wrapper.innerHTML =
-              '<div class="space-y-2.5">' +
-                '<div class="flex items-center gap-2 text-xs font-mono-tech" style="color: var(--text-muted);">' +
-                  '<span class="w-5 h-5 rounded-full inline-flex items-center justify-center text-white text-[10px]" style="background-color: var(--accent-primary);">✹</span>' +
-                  '<span class="font-semibold" style="color: var(--text-ink);">' + (m.model || state.lockedModel) + '</span>' +
-                  '<span>·</span>' +
-                  '<span>' + state.polarityMode + '</span>' +
-                  '<span>·</span>' +
-                  '<span>' + m.timestamp + '</span>' +
-                '</div>' +
-                thinkingHtml +
-                '<div class="font-prose-serif whitespace-pre-wrap"></div>' +
-                artifactCardHtml +
-              '</div>';
-
-            wrapper.querySelector(".font-prose-serif").textContent = m.prose;
-          }
-          list.appendChild(wrapper);
-        });
-
-        // Attach artifact open listeners
-        list.querySelectorAll(".open-artifact-btn").forEach(function (btn) {
-          btn.addEventListener("click", function () {
-            const aid = btn.getAttribute("data-open-artifact");
-            if (aid) {
-              state.activeArtifactId = aid;
-              document.getElementById("right-workbench").classList.remove("hidden");
-              switchWorkbenchTab("artifact");
-              renderArtifacts();
-            }
-          });
-        });
-
-        const scroller = document.getElementById("chat-scroll-container");
-        if (scroller) scroller.scrollTop = scroller.scrollHeight;
-      }
-
-      function renderArtifacts() {
-        const selectEl = document.getElementById("select-active-artifact");
-        const badgeEl = document.getElementById("artifact-count-badge");
-        const codePre = document.getElementById("artifact-code-pre");
-        const lineBadge = document.getElementById("artifact-line-badge");
-        const previewMount = document.getElementById("artifact-live-preview-mount");
-        const codeContainer = document.getElementById("artifact-code-container");
-        const previewContainer = document.getElementById("artifact-preview-container");
-
-        if (badgeEl) badgeEl.textContent = String(state.artifacts.length);
-        if (!selectEl) return;
-
-        selectEl.innerHTML = "";
-        state.artifacts.forEach(function (art) {
-          const opt = document.createElement("option");
-          opt.value = art.id;
-          opt.textContent = art.title;
-          if (art.id === state.activeArtifactId) opt.selected = true;
-          selectEl.appendChild(opt);
-        });
-
-        const current = state.artifacts.find(function (a) { return a.id === state.activeArtifactId; }) || state.artifacts[0];
-        if (!current) return;
-
-        if (codePre) codePre.textContent = current.code;
-        if (lineBadge) lineBadge.textContent = current.lines + " lines · 0 placeholders";
-
-        if (state.artifactViewMode === "code") {
-          codeContainer.classList.remove("hidden");
-          previewContainer.classList.add("hidden");
-        } else {
-          codeContainer.classList.add("hidden");
-          previewContainer.classList.remove("hidden");
-          if (previewMount) {
-            previewMount.innerHTML =
-              '<div class="p-5 rounded-2xl claude-surface-card space-y-3">' +
-                '<div class="flex items-center justify-between border-b claude-hairline pb-2">' +
-                  '<span class="font-display-serif text-xl font-medium">' + current.title + '</span>' +
-                  '<span class="font-mono-tech text-xs px-2 py-0.5 rounded text-white" style="background-color: var(--accent-olive);">VERDICT: PASS</span>' +
-                '</div>' +
-                '<p class="text-xs leading-relaxed" style="color: var(--text-body);">' +
-                  'Interactive Artifact Preview rendered inside isolated sandbox container. Target path: <code>' + current.path + '</code> (' + current.lines + ' lines).' +
-                '</p>' +
-                '<div class="grid grid-cols-3 gap-2 font-mono-tech text-xs pt-1">' +
-                  '<div class="p-2.5 rounded-lg claude-surface-soft">Stage 1: Outline ✓</div>' +
-                  '<div class="p-2.5 rounded-lg claude-surface-soft">Stage 2: Section Gen ✓</div>' +
-                  '<div class="p-2.5 rounded-lg claude-surface-soft">Stage 3-4: Refined ✓</div>' +
-                '</div>' +
-              '</div>';
-          }
-        }
-      }
-
-      function renderPayloadInspector() {
-        const pre = document.getElementById("live-payload-json");
-        if (!pre) return;
-
-        const activeTools = state.deferredTools
-          .filter(function (t) { return t.active; })
-          .map(function (t) { return { type: "tool_reference", tool_name: t.name }; });
-
-        const payload = {
-          endpoint_url: state.endpoint.baseUrl,
-          wire_protocol: state.endpoint.protocol,
-          proxy_boundary: state.endpoint.proxyUrl + " (API Key injected at 127.0.0.1 proxy; scrubbed from agent env)",
-          headers: {
-            "anthropic-version": "2023-06-01",
-            "anthropic-beta": state.endpoint.betaHeaders,
-            "x-api-key": state.endpoint.apiKey ? "[VAULT_SEALED_KEY_PRESENT]" : "[VAULT_DEFAULT_PROXY_KEY]"
-          },
-          body: {
-            model: state.lockedModel === "custom-endpoint-model" ? state.endpoint.customModel : state.lockedModel,
-            max_tokens: 16384,
-            output_config: {
-              effort: state.effort
-            },
-            thinking: {
-              type: "adaptive",
-              display: state.thinkingDisplay
-            },
-            tools: [
-              { type: "tool_search_tool_bm25_20251119", name: "tool_search_tool_bm25" },
-              { name: "Read", defer_loading: false },
-              { name: "Edit", defer_loading: false },
-              { name: "Write", defer_loading: false },
-              { name: "Glob", defer_loading: false },
-              { name: "Grep", defer_loading: false }
-            ],
-            system: [
-              {
-                type: "text",
-                text: "You are cod.ai running in " + state.polarityMode + " with byte-identical Layer 1 prefix...",
-                cache_control: { type: "ephemeral" }
-              }
-            ],
-            messages: [
-              {
-                role: "user",
-                content: [
-                  {
-                    type: "text",
-                    text: "<project_static_context source=\"CLAUDE.md_and_AGENTS.md\">...</project_static_context>",
-                    cache_control: { type: "ephemeral" }
-                  }
-                ]
-              },
-              {
-                role: "system",
-                clear_at: "never",
-                content: [
-                  {
-                    type: "text",
-                    text: "<system_reminder specialist=\"" + state.specialistSlug + "\" mode=\"" + state.polarityMode + "\"/>"
-                  }
-                ]
-              },
-              {
-                role: "user",
-                content: [
-                  { type: "text", text: state.messages[state.messages.length - 1].text || "Ready." }
-                ].concat(activeTools)
-              }
-            ]
-          }
-        };
-
-        pre.textContent = JSON.stringify(payload, null, 2);
-      }
-
-      function renderToolSearchModal(filterQuery) {
-        const list = document.getElementById("toolsearch-results-list");
-        if (!list) return;
-        const q = (filterQuery || "").trim().toLowerCase();
-        list.innerHTML = "";
-
-        state.deferredTools.forEach(function (tool) {
-          if (q && !(tool.name.toLowerCase().includes(q) || tool.desc.toLowerCase().includes(q) || tool.server.toLowerCase().includes(q))) {
-            return;
-          }
-          const row = document.createElement("div");
-          row.className = "p-2.5 rounded-xl claude-surface-soft flex items-center justify-between gap-2";
-          row.innerHTML =
-            '<div>' +
-              '<div class="font-medium">' + tool.name + ' <span class="text-[10px] px-1.5 py-0.5 rounded claude-surface-strong">mcp:' + tool.server + '</span></div>' +
-              '<div class="text-[11px]" style="color: var(--text-muted);">' + tool.desc + '</div>' +
-            '</div>' +
-            '<button type="button" class="px-2.5 py-1 rounded-lg text-xs ' + (tool.active ? 'claude-pill-active' : 'claude-pill') + '">' +
-              (tool.active ? 'Loaded (Layer 3)' : 'Attach tool_ref') +
-            '</button>';
-          row.querySelector("button").addEventListener("click", function () {
-            tool.active = !tool.active;
-            renderToolSearchModal(filterQuery);
-            renderPayloadInspector();
-            showToast(tool.active
-              ? "Expanded " + tool.name + " via Layer 3 tool_reference (0 prefix cache misses)"
-              : "Withdrew " + tool.name + " via Layer 3 tool_removal");
-          });
-          list.appendChild(row);
-        });
-      }
-
-      function updateTelemetryHeader() {
-        const pct = ((state.activeTokens / state.contextWindow) * 100).toFixed(1);
-        const pctEl = document.getElementById("header-budget-pct");
-        const barEl = document.getElementById("header-budget-bar");
-        const l3El = document.getElementById("telemetry-layer3-tok");
-        const minTokEl = document.getElementById("telemetry-min-tok");
-        if (pctEl) pctEl.textContent = pct + "%";
-        if (barEl) {
-          barEl.style.width = Math.min(100, Number(pct)) + "%";
-          barEl.style.backgroundColor = Number(pct) >= 75 ? "var(--accent-fig)" : (Number(pct) >= 60 ? "var(--accent-clay)" : "var(--accent-olive)");
-        }
-        if (l3El) l3El.textContent = state.activeTokens.toLocaleString() + " tok";
-        if (minTokEl) minTokEl.textContent = String(getMinCacheTokens(state.lockedModel));
-      }
-
-      // --- 4. WORKBENCH TAB SWITCHER ---
-      function switchWorkbenchTab(tabName) {
-        const tabs = ["artifact", "telemetry", "security", "payload"];
-        tabs.forEach(function (t) {
-          const btn = document.getElementById("tab-workbench-" + t);
-          const panel = document.getElementById("panel-workbench-" + t);
-          if (btn) {
-            btn.className = "px-2.5 py-1 rounded-lg text-xs font-medium " + (t === tabName ? "claude-pill-active" : "claude-pill");
-          }
-          if (panel) {
-            if (t === tabName) panel.classList.remove("hidden");
-            else panel.classList.add("hidden");
-          }
-        });
-        if (tabName === "payload") renderPayloadInspector();
-      }
-
-      // --- 5. LIVE CUSTOM ENDPOINT DISPATCH OR SYNTHESIS ---
-      async function dispatchPrompt(userText) {
-        const nowStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        state.messages.push({
-          id: "msg-u-" + Date.now(),
-          role: "user",
-          text: userText,
-          timestamp: nowStr
-        });
-
-        // Reset 5-minute (300s) TTL countdown from the START of the request!
-        state.ttlRemainingSec = 300;
-        state.activeTokens += estimateTokens(userText) + 1200;
-
-        // Add node to Pi Session DAG
-        const newNodeId = "e" + (state.dagNodes.length + 1);
-        state.dagNodes.push({
-          id: newNodeId,
-          parentId: state.activeLeafId,
-          label: newNodeId + " · " + userText.slice(0, 26) + "...",
-          tokens: Math.round(state.activeTokens / 1000) + "K tok",
-          active: true
-        });
-        state.activeLeafId = newNodeId;
-
-        renderMessages();
-        renderDAGTree();
-        updateTelemetryHeader();
-        renderPayloadInspector();
-
-        // Check if user configured a live custom endpoint and wants live fetch attempt
-        let liveReplyText = null;
-        if (state.endpoint.apiKey && state.endpoint.baseUrl) {
-          try {
-            const headers = { "Content-Type": "application/json" };
-            if (state.endpoint.protocol === "anthropic-messages") {
-              headers["x-api-key"] = state.endpoint.apiKey;
-              headers["anthropic-version"] = "2023-06-01";
-            } else {
-              headers["Authorization"] = "Bearer " + state.endpoint.apiKey;
-            }
-            const resp = await fetch(state.endpoint.baseUrl, {
-              method: "POST",
-              headers: headers,
-              body: JSON.stringify({
-                model: state.lockedModel === "custom-endpoint-model" ? state.endpoint.customModel : state.lockedModel,
-                max_tokens: 1024,
-                messages: [{ role: "user", content: userText }]
-              })
-            });
-            if (resp.ok) {
-              const data = await resp.json();
-              if (data.content && Array.isArray(data.content) && data.content[0]) {
-                liveReplyText = data.content[0].text;
-              } else if (data.choices && data.choices[0] && data.choices[0].message) {
-                liveReplyText = data.choices[0].message.content;
-              }
-            }
-          } catch (netErr) {
-            // In sandboxed iframe or offline mode, synthesize deterministically via cod.ai engine
-          }
-        }
-
-        // Synthesize Mode A / Mode B response with <antArtifact> if applicable
-        const lower = userText.toLowerCase();
-        let newArtifactId = null;
-        let thinkingTrace = "";
-        let replyProse = liveReplyText;
-
-        if (!replyProse) {
-          if (lower.includes("explore") || lower.includes("glob") || lower.includes("grep")) {
-            thinkingTrace =
-              "1. Detected >3 codebase discovery queries.\n" +
-              "2. Spawning isolated ReadOnlyExploreSubAgent (src/agents/explore_agent.py) so raw file traversals do not pollute lead context.\n" +
-              "3. Distilling 42,800 raw tokens into a 1,420-token architectural brief.";
-            replyProse =
-              "I spawned the isolated **Read-Only `Explore` Sub-Agent** across 4 discovery queries (`Glob *.py`, `Grep cache_control`, `Grep ToolSearch`, `Read src/prompts/engine.py`). Raw traversal consumed 42,800 tokens in the isolated sub-agent window and returned a distilled **1,420-token Architectural Brief** into Layer 3, preserving your 60–80% attention budget.";
-          } else if (lower.includes("verif") || lower.includes("baseline")) {
-            thinkingTrace =
-              "1. Triggering AdversarialVerificationAgent (modeled on 07_verification_agent.md).\n" +
-              "2. Enforcing exit-code-2 read-only guard on project files; writing ephemeral DOM harness to /tmp.\n" +
-              "3. Executing 5-Step Universal Baseline + Lead Agent 3-command spot-check.";
-            replyProse =
-              "**Adversarial Verification Agent (`07_verification_agent.md`) Complete — `VERDICT: PASS`**\n\n" +
-              "• Step 1 (Config Audit): `PASS` (exit 0)\n" +
-              "• Step 2 (Bytecode Compilation): `PASS` (exit 0)\n" +
-              "• Step 3 (16-Test Full Suite): `PASS` (16/16 passed in 7.2s)\n" +
-              "• Step 4 (`cod doctor` & `cod auto-mode critique`): `PASS` (exit 0)\n" +
-              "• Step 5 (Ephemeral `/tmp` DOM Probe): `PASS` (`DOM_PROBE_VERIFIED`)\n" +
-              "• Lead Coordinator Spot-Check: Re-executed 3 verification commands independently — all confirmed authentic.";
-          } else {
-            const artId = "art-synth-" + Date.now();
-            const generatedCode = [
-              "#!/usr/bin/env python3",
-              "# Synthesized via cod.ai Mode A (Holistic Web Architect) 4-Stage Iterative Loop",
-              "from dataclasses import dataclass",
-              "from typing import Any",
-              "",
-              "@dataclass(frozen=True)",
-              "class HolisticModuleContract:",
-              "    module_id: str",
-              "    layer1_sha256: str",
-              "    effort_level: str = \"" + state.effort + "\"",
-              "    thinking_mode: str = \"adaptive:" + state.thinkingDisplay + "\"",
-              "    endpoint_url: str = \"" + state.endpoint.baseUrl + "\"",
-              "",
-              "    def verify_invariants(self) -> dict[str, Any]:",
-              "        return {",
-              "            \"module_id\": self.module_id,",
-              "            \"prefix_locked\": True,",
-              "            \"effort\": self.effort_level,",
-              "            \"thinking\": self.thinking_mode,",
-              "            \"endpoint\": self.endpoint_url,",
-              "            \"verdict\": \"PASS\",",
-              "        }"
-            ].join("\n");
-
-            state.artifacts.unshift({
-              id: artId,
-              title: "Synthesized Module (" + state.specialistSlug + ")",
-              path: "src/synthesized_" + state.specialistSlug.replace(/-/g, "_") + ".py",
-              lines: 108,
-              previewType: "architecture-card",
-              code: generatedCode
-            });
-            state.activeArtifactId = artId;
-            newArtifactId = artId;
-
-            thinkingTrace =
-              "1. Operating in " + state.polarityMode + " under specialist charter [" + state.specialistSlug + "].\n" +
-              "2. Applied GOAL XML framing (<context>, <objective>, <constraints>, <output_contract>).\n" +
-              "3. Executed 4-Stage Iterative Drafting Loop (Outline -> Section Gen -> Review -> Final) with 0 placeholders.\n" +
-              "4. Preserved Layer 1 & Layer 2 cache breakpoints via per-message output_config.effort='" + state.effort + "'.";
-
-            replyProse =
-              "I've synthesized the requested specification under **" + state.polarityMode + "** (`" + state.specialistSlug + "`) with `output_config.effort: \"" + state.effort + "\"` and `thinking: {\"type\": \"adaptive\", \"display\": \"" + state.thinkingDisplay + "\"}`.\n\n" +
-              "Layer 1 (`tools` + `system`) and Layer 2 (`CLAUDE.md` + `AGENTS.md`) remained 100% byte-identical (`Cache Re-billed: $0.0000`). Click the `<antArtifact>` card below to inspect the generated code or switch to the **API Payload** tab to inspect the exact wire JSON.";
-          }
-        }
-
-        state.messages.push({
-          id: "msg-a-" + Date.now(),
-          role: "assistant",
-          model: state.lockedModel === "custom-endpoint-model" ? state.endpoint.customModel : state.lockedModel,
-          effort: state.effort,
-          thinkingDisplay: state.thinkingDisplay,
-          thinkingSummary: thinkingTrace,
-          signature: "Sig_" + Math.random().toString(36).substring(2, 14) + "99abc",
-          prose: replyProse,
-          artifactId: newArtifactId,
-          timestamp: nowStr
-        });
-
-        renderMessages();
-        renderArtifacts();
-        renderPayloadInspector();
-      }
-
-      // --- 6. EVENT LISTENERS ---
-      function initEventListeners() {
-        // Sidebar toggle
-        document.getElementById("btn-toggle-sidebar").addEventListener("click", function () {
-          document.getElementById("left-sidebar").classList.toggle("hidden");
-        });
-
-        // Workbench toggle & close
-        document.getElementById("btn-toggle-workbench").addEventListener("click", function () {
-          document.getElementById("right-workbench").classList.toggle("hidden");
-        });
-        document.getElementById("btn-close-workbench").addEventListener("click", function () {
-          document.getElementById("right-workbench").classList.add("hidden");
-        });
-
-        // Theme toggle (Cream Light <-> Obsidian Dark)
-        document.getElementById("btn-toggle-theme").addEventListener("click", function () {
-          state.theme = state.theme === "light" ? "dark" : "light";
-          document.documentElement.setAttribute("data-theme", state.theme);
-          document.getElementById("theme-icon-label").textContent = state.theme === "light" ? "☾ Dark" : "☀ Cream";
-          showToast("Switched surface theme to " + (state.theme === "light" ? "Ivory Cream (#faf9f5)" : "Warm Obsidian (#181715)"));
-        });
-
-        // Workbench tabs
-        ["artifact", "telemetry", "security", "payload"].forEach(function (tab) {
-          document.getElementById("tab-workbench-" + tab).addEventListener("click", function () {
-            switchWorkbenchTab(tab);
-          });
-        });
-
-        // Header cache inspect button
-        document.getElementById("btn-inspect-cache").addEventListener("click", function () {
-          document.getElementById("right-workbench").classList.remove("hidden");
-          switchWorkbenchTab("telemetry");
-        });
-
-        // 5-Minute TTL Keep-Alive Ping
-        document.getElementById("btn-ttl-keepalive").addEventListener("click", function () {
-          state.ttlRemainingSec = 300;
-          showToast("Sent 1-token ephemeral cache keep-alive ping ($0.0002 read rate). 5m TTL reset to 05:00!");
-        });
-
-        // New Session Branch (/tree fork)
-        document.getElementById("btn-new-session").addEventListener("click", function () {
-          const branchId = "e" + (state.dagNodes.length + 1);
-          state.dagNodes.push({
-            id: branchId,
-            parentId: "e1",
-            label: branchId + " · Branched from e1 (Cached Prefix)",
-            tokens: "10.4K tok",
-            active: true
-          });
-          state.activeLeafId = branchId;
-          renderDAGTree();
-          showToast("Forked clean DAG branch " + branchId + " from e1 with 100% Layer 1/2 cache hit!");
-        });
-
-        // Stage 2 Compaction Service button
-        document.getElementById("btn-trigger-compact").addEventListener("click", function () {
-          const before = state.activeTokens;
-          state.activeTokens = Math.max(48000, Math.round(before * 0.25));
-          updateTelemetryHeader();
-          showToast("Stage 2 Compact Service (NO_TOOLS_PREAMBLE): Stripped <analysis>, built 9-section <summary> + top-5 files (" + before.toLocaleString() + " → " + state.activeTokens.toLocaleString() + " tok)");
-        });
-
-        // Mode A vs Mode B Polarity Switch
-        const btnArch = document.getElementById("btn-mode-architect");
-        const btnImpl = document.getElementById("btn-mode-implementer");
-        const descEl = document.getElementById("polarity-mode-desc");
-
-        btnArch.addEventListener("click", function () {
-          state.polarityMode = "MODE_A_ARCHITECT";
-          btnArch.className = "py-1.5 px-2 rounded-lg text-xs font-medium claude-pill-active";
-          btnImpl.className = "py-1.5 px-2 rounded-lg text-xs font-medium claude-pill";
-          descEl.textContent = "Holistic Web Architect: GOAL XML framing, >100-line 4-stage iterative drafting, zero Bash log noise.";
-          renderPayloadInspector();
-          showToast("Switched to Mode A (Holistic Web Architect) via Layer 3 <system_reminder>");
-        });
-
-        btnImpl.addEventListener("click", function () {
-          state.polarityMode = "MODE_B_IMPLEMENTER";
-          btnImpl.className = "py-1.5 px-2 rounded-lg text-xs font-medium claude-pill-active";
-          btnArch.className = "py-1.5 px-2 rounded-lg text-xs font-medium claude-pill";
-          descEl.textContent = "Surgical CLI Implementer: Enforces Read/Edit/Write/Glob/Grep; blocks raw Bash file ops (cat/sed/awk).";
-          renderPayloadInspector();
-          showToast("Switched to Mode B (Surgical CLI Implementer) via Layer 3 <system_reminder>");
-        });
-
-        // Specialist Fleet Selector
-        document.getElementById("select-pi-specialist").addEventListener("change", function (e) {
-          state.specialistSlug = e.target.value;
-          renderPayloadInspector();
-          showToast("Injected @" + state.specialistSlug + " charter at tail of Layer 3 (0 prefix cache misses)");
-        });
-
-        // Model Selector with Model-Affinity Router Guard
-        document.getElementById("select-model").addEventListener("change", function (e) {
-          const chosen = e.target.value;
-          if (chosen === "claude-haiku-5-5") {
-            e.target.value = state.lockedModel;
-            showToast("Model-Affinity Guard: Primary loop stays locked to " + state.lockedModel + " to avoid a 10x cold cache write! Haiku 5.5 is reserved for stateless utility calls.");
-            return;
-          }
-          state.lockedModel = chosen;
-          document.getElementById("greeting-model-pill").textContent = chosen + " (1M Context · Adaptive Thinking)";
-          updateTelemetryHeader();
-          renderPayloadInspector();
-          showToast("Locked primary session model to " + chosen);
-        });
-
-        // Effort Selector (Per-message output_config.effort)
-        document.getElementById("select-effort").addEventListener("change", function (e) {
-          state.effort = e.target.value;
-          renderPayloadInspector();
-          showToast("Updated per-message output_config.effort to '" + state.effort + "' (mid-conversation-output-config-2026-07-01 — cache preserved)");
-        });
-
-        // Thinking Display Selector
-        document.getElementById("select-thinking-display").addEventListener("change", function (e) {
-          state.thinkingDisplay = e.target.value;
-          renderPayloadInspector();
-          showToast("Set adaptive thinking display to '" + state.thinkingDisplay + "'");
-        });
-
-        // Artifact Selector, Code/Preview toggle, Copy, Download
-        document.getElementById("select-active-artifact").addEventListener("change", function (e) {
-          state.activeArtifactId = e.target.value;
-          renderArtifacts();
-        });
-
-        document.getElementById("btn-artifact-view-code").addEventListener("click", function () {
-          state.artifactViewMode = "code";
-          document.getElementById("btn-artifact-view-code").className = "px-2.5 py-1 rounded-lg text-xs font-mono-tech claude-pill-active";
-          document.getElementById("btn-artifact-view-preview").className = "px-2.5 py-1 rounded-lg text-xs font-mono-tech claude-pill";
-          renderArtifacts();
-        });
-
-        document.getElementById("btn-artifact-view-preview").addEventListener("click", function () {
-          state.artifactViewMode = "preview";
-          document.getElementById("btn-artifact-view-preview").className = "px-2.5 py-1 rounded-lg text-xs font-mono-tech claude-pill-active";
-          document.getElementById("btn-artifact-view-code").className = "px-2.5 py-1 rounded-lg text-xs font-mono-tech claude-pill";
-          renderArtifacts();
-        });
-
-        document.getElementById("btn-copy-artifact").addEventListener("click", function () {
-          const current = state.artifacts.find(function (a) { return a.id === state.activeArtifactId; }) || state.artifacts[0];
-          if (!current) return;
-          try {
-            navigator.clipboard.writeText(current.code);
-          } catch (err) {
-            const ta = document.createElement("textarea");
-            ta.value = current.code;
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand("copy");
-            document.body.removeChild(ta);
-          }
-          showToast("Copied " + current.path + " to clipboard");
-        });
-
-        document.getElementById("btn-download-artifact").addEventListener("click", function () {
-          const current = state.artifacts.find(function (a) { return a.id === state.activeArtifactId; }) || state.artifacts[0];
-          if (!current) return;
-          const blob = new Blob([current.code], { type: "text/plain;charset=utf-8" });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = current.path.split("/").pop() || "artifact.py";
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-          showToast("Downloaded " + current.path);
-        });
-
-        // Copy cURL / JSON Payload
-        document.getElementById("btn-copy-payload").addEventListener("click", function () {
-          const txt = document.getElementById("live-payload-json").textContent || "";
-          try {
-            navigator.clipboard.writeText(txt);
-          } catch (err) {
-            const ta = document.createElement("textarea");
-            ta.value = txt;
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand("copy");
-            document.body.removeChild(ta);
-          }
-          showToast("Copied live endpoint wire payload to clipboard");
-        });
-
-        // Security Classifier Probe
-        function evaluateSecurityProbe(cmd) {
-          const out = document.getElementById("security-probe-output");
-          const trimmed = (cmd || "").trim();
-          if (/^(cat|head|tail|sed|awk)\b/.test(trimmed)) {
-            out.textContent = "Mode B Surgical Guard: BLOCKED (exit_code=2)\nReason: Raw Bash file manipulation ('" + trimmed.split(" ")[0] + "') is forbidden. Use dedicated Read/Edit/Write/Glob/Grep primitives.";
-            return;
-          }
-          if (/rm\s+-[a-zA-Z]*r[a-zA-Z]*f|git\s+push\s+.*--force|DROP\s+TABLE/i.test(trimmed)) {
-            out.textContent = "Stage 1 Verdict: SOFT_DENY (exit_code=2, blast_radius=9/10, reversible=false)\nMatched Pipe-Aware Rule: Destructive subcommand detected in pipeline. Blocked deterministically.";
-            return;
-          }
-          if (/re-firewall\s+unmask|\.github\/workflows/i.test(trimmed)) {
-            out.textContent = "Stage 2 Extended Thinking Verdict: ESCALATED_DENY (exit_code=2, blast_radius=8/10)\n<stage2_security_thinking>\nSubcommand modifies Proxmox containment perimeter ('" + trimmed + "') without explicit <user_claude_md> authorization.\n</stage2_security_thinking>";
-            return;
-          }
-          out.textContent = "Stage 1 Verdict: ALLOW (exit_code=0, blast_radius=1/10, reversible=true, tool_results_stripped=true)\nAll pipe/chain segments matched anchored allow_rules.";
-        }
-
-        document.getElementById("btn-run-security-probe").addEventListener("click", function () {
-          evaluateSecurityProbe(document.getElementById("input-security-probe").value);
-        });
-
-        document.querySelectorAll(".sec-sample-btn").forEach(function (btn) {
-          btn.addEventListener("click", function () {
-            const sample = btn.getAttribute("data-sec-sample") || "";
-            document.getElementById("input-security-probe").value = sample;
-            evaluateSecurityProbe(sample);
-          });
-        });
-
-        document.getElementById("btn-run-critique").addEventListener("click", function () {
-          const out = document.getElementById("critique-audit-output");
-          out.textContent =
-            "# cod auto-mode critique Report (17_auto_mode_critique.md)\n" +
-            "- Status: PASS\n" +
-            "- Anchored Allow Rules: 4 (^git, ^python3, ^pytest, ^npm)\n" +
-            "- Soft-Deny Rules: 4 (rm -rf, git push --force, DROP TABLE, curl | sh)\n" +
-            "- Untrusted tool_result Stripping: ENABLED\n" +
-            "- Conflicts / Wildcard Gaps: 0";
-          showToast("Executed cod auto-mode critique audit");
-        });
-
-        // Custom Endpoint Studio Modal
-        const epModal = document.getElementById("modal-endpoint-studio");
-        document.getElementById("btn-open-endpoint-modal").addEventListener("click", function () {
-          epModal.classList.remove("hidden");
-        });
-        document.getElementById("btn-close-endpoint-modal").addEventListener("click", function () {
-          epModal.classList.add("hidden");
-        });
-
-        document.querySelectorAll(".ep-preset-btn").forEach(function (btn) {
-          btn.addEventListener("click", function () {
-            const preset = btn.getAttribute("data-ep-preset");
-            document.querySelectorAll(".ep-preset-btn").forEach(function (b) {
-              b.className = "ep-preset-btn p-2.5 rounded-xl text-left claude-pill text-xs";
-            });
-            btn.className = "ep-preset-btn p-2.5 rounded-xl text-left claude-pill-active text-xs";
-
-            if (preset === "anthropic") {
-              document.getElementById("ep-base-url").value = "https://api.anthropic.com/v1/messages";
-              document.getElementById("ep-wire-protocol").value = "anthropic-messages";
-              document.getElementById("ep-custom-model").value = "claude-opus-5-5";
-            } else if (preset === "heretek") {
-              document.getElementById("ep-base-url").value = "https://llm.heretek.one/v1/chat/completions";
-              document.getElementById("ep-wire-protocol").value = "openai-chat";
-              document.getElementById("ep-custom-model").value = "claude-opus-5-5";
-            } else {
-              document.getElementById("ep-base-url").value = "http://127.0.0.1:8642/v1/messages";
-              document.getElementById("ep-wire-protocol").value = "cod-ai-local-proxy";
-              document.getElementById("ep-custom-model").value = "lemonade-CyberTielCoder";
-            }
-          });
-        });
-
-        document.getElementById("btn-test-endpoint").addEventListener("click", function () {
-          const url = document.getElementById("ep-base-url").value.trim();
-          const proto = document.getElementById("ep-wire-protocol").value;
-          const banner = document.getElementById("ep-test-banner");
-          banner.textContent = "✓ Verified endpoint URL '" + url + "' (" + proto + "). Host is allowlisted in CredentialVaultProxy (127.0.0.1:3128) with boundary header injection ready.";
-          banner.style.color = "var(--accent-olive)";
-        });
-
-        document.getElementById("btn-save-endpoint").addEventListener("click", function () {
-          state.endpoint.baseUrl = document.getElementById("ep-base-url").value.trim();
-          state.endpoint.protocol = document.getElementById("ep-wire-protocol").value;
-          state.endpoint.customModel = document.getElementById("ep-custom-model").value.trim();
-          state.endpoint.apiKey = document.getElementById("ep-api-key").value.trim();
-          state.endpoint.proxyUrl = document.getElementById("ep-proxy-url").value.trim();
-          state.endpoint.betaHeaders = document.getElementById("ep-beta-headers").value.trim();
-
-          try {
-            localStorage.setItem("cod_ai_endpoint_config_v1", JSON.stringify({
-              baseUrl: state.endpoint.baseUrl,
-              protocol: state.endpoint.protocol,
-              customModel: state.endpoint.customModel,
-              proxyUrl: state.endpoint.proxyUrl,
-              betaHeaders: state.endpoint.betaHeaders
-            }));
-          } catch (err) {
-            // Ignore sandbox storage error
-          }
-
-          const hostShort = state.endpoint.baseUrl.replace(/^https?:\/\//, "").split("/")[0];
-          document.getElementById("endpoint-active-label").textContent = hostShort;
-          epModal.classList.add("hidden");
-          renderPayloadInspector();
-          showToast("Saved & locked endpoint profile: " + hostShort);
-        });
-
-        // ToolSearch Modal
-        const tsModal = document.getElementById("modal-toolsearch");
-        document.getElementById("btn-open-toolsearch").addEventListener("click", function () {
-          renderToolSearchModal("");
-          tsModal.classList.remove("hidden");
-        });
-        document.getElementById("btn-close-toolsearch").addEventListener("click", function () {
-          tsModal.classList.add("hidden");
-        });
-        document.getElementById("input-toolsearch-query").addEventListener("input", function (e) {
-          renderToolSearchModal(e.target.value);
-        });
-
-        // Starter Prompt Chips
-        document.querySelectorAll(".starter-chip").forEach(function (chip) {
-          chip.addEventListener("click", function () {
-            const kind = chip.getAttribute("data-starter");
-            if (kind === "architect-gui") {
-              dispatchPrompt("Synthesize a >100-line Mode A module with GOAL XML framing and 0 truncation placeholders.");
-            } else if (kind === "explore-repo") {
-              dispatchPrompt("Run >3 Glob and Grep discovery queries via the Read-Only Explore Sub-Agent.");
-            } else if (kind === "run-verifier") {
-              dispatchPrompt("Execute the 5-Step Universal Baseline via the Adversarial Verification Agent.");
-            } else if (kind === "test-classifier") {
-              document.getElementById("right-workbench").classList.remove("hidden");
-              switchWorkbenchTab("security");
-              showToast("Opened 2-Stage Auto-Mode Security Classifier & Critique Workbench");
-            }
-          });
-        });
-
-        // Prompt input token counter & form submission
-        const promptInput = document.getElementById("chat-prompt-input");
-        promptInput.addEventListener("input", function () {
-          const tok = estimateTokens(promptInput.value);
-          document.getElementById("composer-token-est").textContent = tok + " tok";
-        });
-
-        promptInput.addEventListener("keydown", function (e) {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            const val = promptInput.value.trim();
-            if (val) {
-              promptInput.value = "";
-              document.getElementById("composer-token-est").textContent = "0 tok";
-              dispatchPrompt(val);
-            }
-          }
-        });
-
-        document.getElementById("chat-composer-form").addEventListener("submit", function (e) {
-          e.preventDefault();
-          const val = promptInput.value.trim();
-          if (!val) return;
-          promptInput.value = "";
-          document.getElementById("composer-token-est").textContent = "0 tok";
-          dispatchPrompt(val);
-        });
-
-        // Live 5-Minute TTL Countdown Interval (ticks every second from request start)
-        if (window._codTtlInterval) clearInterval(window._codTtlInterval);
-        window._codTtlInterval = setInterval(function () {
-          if (state.ttlRemainingSec > 0) {
-            state.ttlRemainingSec -= 1;
-          }
-          const mins = String(Math.floor(state.ttlRemainingSec / 60)).padStart(2, "0");
-          const secs = String(state.ttlRemainingSec % 60).padStart(2, "0");
-          const ttlText = document.getElementById("ttl-countdown-text");
-          const ttlDot = document.getElementById("ttl-indicator-dot");
-          if (ttlText) ttlText.textContent = mins + ":" + secs;
-          if (ttlDot) {
-            ttlDot.style.backgroundColor = state.ttlRemainingSec <= 45
-              ? "var(--accent-fig)"
-              : "var(--accent-olive)";
-          }
-        }, 1000);
-      }
-
-      // --- 7. BOOTSTRAP ---
-      window.addEventListener("DOMContentLoaded", function () {
-        renderDAGTree();
-        renderMessages();
-        renderArtifacts();
-        renderPayloadInspector();
-        updateTelemetryHeader();
-        initEventListeners();
+      return null;
+    }
+
+    function newConversation(firstText) {
+      var conv = {
+        id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        title: firstText.replace(/\s+/g, " ").trim().slice(0, 60) || "New chat",
+        createdAt: Date.now(),
+        turns: []
+      };
+      conversations.unshift(conv);
+      activeId = conv.id;
+      return conv;
+    }
+
+    // The history sent to the API: completed user/assistant pairs, assistant turns
+    // echoed exactly as the server returned them. Failed, refused or stopped turns
+    // are left out so the conversation stays append-only and well formed.
+    function apiMessages(conv) {
+      var out = [];
+      conv.turns.forEach(function (t) {
+        if (!t.included) return;
+        if (t.role === "user") out.push({ role: "user", content: t.text });
+        else out.push({ role: "assistant", content: t.history });
       });
-    })();
+      return out;
+    }
+
+    // ---------- rendering ----------
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function renderInline(text) {
+      var parts = text.split(/(`[^`\n]+`)/g);
+      return parts.map(function (part) {
+        if (/^`[^`\n]+`$/.test(part)) return "<code>" + escapeHtml(part.slice(1, -1)) + "</code>";
+        var s = escapeHtml(part);
+        s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, function (_, label, url) {
+          return '<a href="' + url + '" target="_blank" rel="noopener noreferrer">' + label + "</a>";
+        });
+        s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+        s = s.replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>");
+        return s;
+      }).join("");
+    }
+
+    // A small, escape-first Markdown renderer: fenced code, headings, lists,
+    // paragraphs, inline code, bold, italics and http(s) links. No raw HTML.
+    function renderMarkdown(src) {
+      var lines = src.replace(/\r\n/g, "\n").split("\n");
+      var html = [];
+      var para = [];
+      var list = null;
+
+      function flushPara() {
+        if (para.length) html.push("<p>" + para.map(renderInline).join("<br>") + "</p>");
+        para = [];
+      }
+      function flushList() {
+        if (list) html.push("<" + list.tag + ">" + list.items.map(function (i) { return "<li>" + renderInline(i) + "</li>"; }).join("") + "</" + list.tag + ">");
+        list = null;
+      }
+
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        var fence = line.match(/^\s*```\s*([\w+#.-]*)\s*$/);
+        if (fence) {
+          flushPara(); flushList();
+          var code = [];
+          i++;
+          while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) { code.push(lines[i]); i++; }
+          html.push(codeBlockHtml(fence[1], code.join("\n")));
+          continue;
+        }
+        var heading = line.match(/^(#{1,4})\s+(.*)$/);
+        if (heading) {
+          flushPara(); flushList();
+          var level = heading[1].length + 1;
+          html.push("<h" + level + ">" + renderInline(heading[2]) + "</h" + level + ">");
+          continue;
+        }
+        var bullet = line.match(/^\s*[-*+]\s+(.*)$/);
+        var numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+        if (bullet || numbered) {
+          flushPara();
+          var tag = bullet ? "ul" : "ol";
+          if (!list || list.tag !== tag) { flushList(); list = { tag: tag, items: [] }; }
+          list.items.push((bullet || numbered)[1]);
+          continue;
+        }
+        if (!line.trim()) { flushPara(); flushList(); continue; }
+        flushList();
+        para.push(line);
+      }
+      flushPara(); flushList();
+      return html.join("");
+    }
+
+    function codeBlockHtml(lang, code) {
+      return '<div class="code-block"><div class="bar"><span>' + escapeHtml(lang || "code") +
+        '</span><button type="button" data-copy>Copy</button></div><pre><code>' + escapeHtml(code) + "</code></pre></div>";
+    }
+
+    function fmt(n) { return (n || 0).toLocaleString(); }
+
+    function usageLine(t) {
+      if (!t.usage) return "";
+      var u = t.usage;
+      var parts = [t.model || "", "in " + fmt(u.input_tokens), "out " + fmt(u.output_tokens)];
+      if (u.cache_read_input_tokens) parts.push("cache read " + fmt(u.cache_read_input_tokens));
+      if (u.cache_creation_input_tokens) parts.push("cache write " + fmt(u.cache_creation_input_tokens));
+      return parts.filter(Boolean).join(" · ");
+    }
+
+    function renderAssistant(t) {
+      var html = [];
+      t.blocks.forEach(function (b) {
+        if (b.type === "thinking") {
+          if (!b.text) {
+            if (t.status === "streaming") html.push('<div class="notice">Thinking…</div>');
+            return;
+          }
+          html.push('<details class="thinking"' + (t.status === "streaming" ? " open" : "") +
+            "><summary>Thinking</summary><div class=\"body\">" + escapeHtml(b.text) + "</div></details>");
+        } else if (b.type === "text") {
+          html.push(renderMarkdown(b.text));
+        } else if (b.type === "fallback") {
+          html.push('<div class="notice">' + escapeHtml(b.from) + " declined; continuing on " + escapeHtml(b.to) + ".</div>");
+        }
+      });
+      if (t.status === "streaming" && !t.blocks.length) html.push('<div class="notice">Waiting for Claude…</div>');
+      if (t.status === "stopped") html.push('<div class="notice">Stopped. This reply is left out of the conversation.</div>');
+      if (t.status === "refused") {
+        html.push('<div class="notice error">Claude declined this request' +
+          (t.refusalCategory ? " (" + escapeHtml(t.refusalCategory) + ")" : "") +
+          ". It is left out of the conversation, so you can rephrase and try again.</div>");
+      }
+      if (t.status === "error") html.push('<div class="notice error">' + escapeHtml(t.error || "Request failed.") + "</div>");
+      if (t.status === "done" && t.stopReason === "max_tokens") html.push('<div class="notice">The reply hit the output token limit.</div>');
+      var meta = usageLine(t);
+      if (meta) html.push('<div class="meta">' + escapeHtml(meta) + "</div>");
+      return html.join("");
+    }
+
+    function renderTurn(t) {
+      var div = document.createElement("div");
+      if (t.role === "user") {
+        div.className = "msg-user" + (t.included ? "" : " excluded");
+        div.textContent = t.text;
+      } else {
+        div.className = "msg-assistant" + (t.status === "streaming" ? " cursor" : "");
+        div.innerHTML = renderAssistant(t);
+      }
+      div.dataset.turn = t.key;
+      return div;
+    }
+
+    function rerenderTurn(t) {
+      var old = el.messages.querySelector('[data-turn="' + t.key + '"]');
+      if (old) old.replaceWith(renderTurn(t));
+    }
+
+    function renderMessages() {
+      var conv = activeConversation();
+      el.messages.innerHTML = "";
+      el.empty.style.display = conv && conv.turns.length ? "none" : "";
+      el.title.textContent = conv ? conv.title : "New chat";
+      if (!conv) return;
+      conv.turns.forEach(function (t) {
+        el.messages.appendChild(renderTurn(t));
+      });
+      scrollToBottom(true);
+    }
+
+    function renderList() {
+      el.list.innerHTML = "";
+      conversations.forEach(function (c) {
+        var item = document.createElement("div");
+        item.className = "conv-item" + (c.id === activeId ? " active" : "");
+        var open = document.createElement("button");
+        open.type = "button";
+        open.className = "open";
+        open.textContent = c.title;
+        open.addEventListener("click", function () {
+          if (inflight) return toast("Wait for the current reply or stop it first.");
+          activeId = c.id;
+          document.body.classList.remove("sidebar-open");
+          renderAll();
+        });
+        var del = document.createElement("button");
+        del.type = "button";
+        del.className = "delete";
+        del.setAttribute("aria-label", "Delete conversation");
+        del.textContent = "✕";
+        del.addEventListener("click", function () {
+          if (inflight && c.id === activeId) return toast("Stop the current reply before deleting.");
+          if (!confirm("Delete “" + c.title + "”?")) return;
+          conversations = conversations.filter(function (x) { return x.id !== c.id; });
+          if (activeId === c.id) activeId = conversations.length ? conversations[0].id : null;
+          saveConversations();
+          renderAll();
+        });
+        item.appendChild(open);
+        item.appendChild(del);
+        el.list.appendChild(item);
+      });
+    }
+
+    function renderAll() { renderList(); renderMessages(); updateSendButton(); }
+
+    function scrollToBottom(force) {
+      var s = el.scroll;
+      var nearBottom = s.scrollHeight - s.scrollTop - s.clientHeight < 120;
+      if (force || nearBottom) s.scrollTop = s.scrollHeight;
+    }
+
+    function toast(msg) {
+      el.toast.textContent = msg;
+      el.toast.classList.add("show");
+      clearTimeout(toast._t);
+      toast._t = setTimeout(function () { el.toast.classList.remove("show"); }, 3200);
+    }
+
+    // ---------- settings ----------
+
+    function populateSelectors() {
+      el.model.innerHTML = "";
+      config.models.forEach(function (m) {
+        var o = document.createElement("option");
+        o.value = m.id;
+        o.textContent = m.label;
+        el.model.appendChild(o);
+      });
+      el.effort.innerHTML = "";
+      config.effort_levels.forEach(function (e) {
+        var o = document.createElement("option");
+        o.value = e;
+        o.textContent = e;
+        el.effort.appendChild(o);
+      });
+      el.model.value = config.default_model;
+      applyDefaultEffort();
+    }
+
+    function applyDefaultEffort() {
+      var m = config.models.filter(function (x) { return x.id === el.model.value; })[0];
+      if (m) el.effort.value = m.default_effort;
+    }
+
+    function loadConfig() {
+      fetch("/api/config").then(function (r) { return r.ok ? r.json() : null; }).then(function (cfg) {
+        if (cfg) config = cfg;
+        populateSelectors();
+      }).catch(function () {
+        populateSelectors();
+        document.getElementById("empty-sub").textContent =
+          "The cod.ai server isn't reachable. Start it with `cod serve` and open http://127.0.0.1:8642.";
+      });
+    }
+
+    // ---------- streaming ----------
+
+    function updateSendButton() {
+      if (inflight) {
+        el.send.disabled = false;
+        el.send.textContent = "Stop";
+      } else {
+        el.send.textContent = "Send";
+        el.send.disabled = !el.prompt.value.trim();
+      }
+    }
+
+    // Parses a text/event-stream body into {event, data} records.
+    function readEvents(response, onEvent) {
+      var reader = response.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = "";
+      function pump() {
+        return reader.read().then(function (chunk) {
+          if (chunk.done) return;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          var idx;
+          while ((idx = buffer.indexOf("\n\n")) !== -1) {
+            var raw = buffer.slice(0, idx);
+            buffer = buffer.slice(idx + 2);
+            var event = "message";
+            var data = [];
+            raw.split("\n").forEach(function (line) {
+              if (line.indexOf("event:") === 0) event = line.slice(6).trim();
+              else if (line.indexOf("data:") === 0) data.push(line.slice(5).replace(/^ /, ""));
+            });
+            if (data.length) onEvent(event, JSON.parse(data.join("\n")));
+          }
+          return pump();
+        });
+      }
+      return pump();
+    }
+
+    function send(text) {
+      var conv = activeConversation() || newConversation(text);
+      var userTurn = { key: "u" + Date.now(), role: "user", text: text, included: true };
+      var reply = {
+        key: "a" + Date.now(), role: "assistant", status: "streaming", blocks: [], byIndex: {},
+        included: false, history: null, model: el.model.value
+      };
+      conv.turns.push(userTurn, reply);
+      saveConversations();
+      renderAll();
+
+      var body = {
+        model: el.model.value,
+        effort: el.effort.value,
+        thinking_display: el.thinking.value,
+        messages: apiMessages(conv)
+      };
+      var controller = new AbortController();
+      inflight = { controller: controller, reply: reply, user: userTurn };
+      updateSendButton();
+
+      var pending = false;
+      function repaint() {
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(function () {
+          pending = false;
+          rerenderTurn(reply);
+          scrollToBottom(false);
+        });
+      }
+
+      var finished = false;
+      function finish(status, extra) {
+        if (finished) return;
+        finished = true;
+        reply.status = status;
+        Object.keys(extra || {}).forEach(function (k) { reply[k] = extra[k]; });
+        reply.included = status === "done" && Array.isArray(reply.history) && reply.history.length > 0;
+        userTurn.included = reply.included;
+        delete reply.byIndex;
+        inflight = null;
+        saveConversations();
+        renderAll();
+      }
+
+      fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      }).then(function (resp) {
+        if (!resp.ok) {
+          return resp.json().catch(function () { return {}; }).then(function (j) {
+            var detail = j && j.detail;
+            var msg = Array.isArray(detail) ? detail.map(function (d) { return d.msg; }).join("; ") : (detail || resp.statusText);
+            finish("error", { error: "The server rejected the request: " + msg });
+          });
+        }
+        return readEvents(resp, function (event, data) {
+          if (event === "start") {
+            reply.model = data.model;
+          } else if (event === "block") {
+            var b = data.block;
+            var view;
+            if (b.type === "fallback") view = { type: "fallback", from: (b.from || {}).model, to: (b.to || {}).model };
+            else if (b.type === "thinking" || b.type === "text") view = { type: b.type, text: "" };
+            else return;
+            reply.byIndex[data.index] = view;
+            reply.blocks.push(view);
+          } else if (event === "delta") {
+            var target = reply.byIndex[data.index];
+            if (target) target.text += data.text;
+          } else if (event === "done") {
+            var refused = data.stop_reason === "refusal";
+            finish(refused ? "refused" : "done", {
+              model: data.model,
+              stopReason: data.stop_reason,
+              refusalCategory: refused && data.stop_details ? data.stop_details.category : null,
+              history: data.history,
+              usage: data.usage
+            });
+            return;
+          } else if (event === "error") {
+            finish("error", { error: (data.status ? "API error " + data.status + ": " : "") + data.message });
+            return;
+          }
+          repaint();
+        }).then(function () {
+          finish("error", { error: "The connection closed before the reply finished." });
+        });
+      }).catch(function (err) {
+        if (err && err.name === "AbortError") finish("stopped");
+        else finish("error", { error: "Couldn't reach the cod.ai server." });
+      });
+    }
+
+    // ---------- events ----------
+
+    el.form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      if (inflight) { inflight.controller.abort(); return; }
+      var text = el.prompt.value.trim();
+      if (!text) return;
+      el.prompt.value = "";
+      autosize();
+      send(text);
+    });
+
+    el.prompt.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        if (!inflight) el.form.requestSubmit();
+      }
+    });
+
+    function autosize() {
+      el.prompt.style.height = "auto";
+      el.prompt.style.height = Math.min(el.prompt.scrollHeight, 240) + "px";
+    }
+    el.prompt.addEventListener("input", function () { autosize(); updateSendButton(); });
+
+    el.model.addEventListener("change", applyDefaultEffort);
+
+    document.getElementById("btn-new").addEventListener("click", function () {
+      if (inflight) return toast("Wait for the current reply or stop it first.");
+      activeId = null;
+      document.body.classList.remove("sidebar-open");
+      renderAll();
+      el.prompt.focus();
+    });
+
+    document.getElementById("btn-sidebar").addEventListener("click", function () {
+      document.body.classList.toggle("sidebar-open");
+    });
+
+    el.messages.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-copy]");
+      if (!btn) return;
+      var code = btn.closest(".code-block").querySelector("code").textContent;
+      navigator.clipboard.writeText(code).then(function () { toast("Copied"); }, function () { toast("Couldn't copy"); });
+    });
+
+    function applyTheme(theme) {
+      if (theme) document.documentElement.setAttribute("data-theme", theme);
+      else document.documentElement.removeAttribute("data-theme");
+    }
+    try { applyTheme(localStorage.getItem(THEME_KEY)); } catch (e) {}
+    document.getElementById("btn-theme").addEventListener("click", function () {
+      var dark = getComputedStyle(document.documentElement).getPropertyValue("--bg-canvas").trim() === "#181715";
+      var next = dark ? "light" : "dark";
+      applyTheme(next);
+      try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+    });
+
+    // A reply that was streaming when the page closed never finished.
+    conversations.forEach(function (c) {
+      c.turns.forEach(function (t, i) {
+        if (t.role === "assistant" && t.status === "streaming") {
+          t.status = "stopped";
+          t.included = false;
+          delete t.byIndex;
+          if (c.turns[i - 1]) c.turns[i - 1].included = false;
+        }
+      });
+    });
+
+    loadConfig();
+    renderAll();
+  })();
   </script>
 </body>
 </html>

@@ -471,43 +471,5 @@ class TestPhase5ContainmentAndSecurityClassifier(unittest.TestCase):
         self.assertIn("`/skill doctor`", md)
 
 
-
-    def test_phase6_claude_web_opus_5_5_gui_and_endpoint_studio(self) -> None:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("web_server", str(WORKSPACE / "src" / "web_server.py"))
-        ws = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(ws)
-        EndpointConfigPayload, ChatTurnPayload, configure_custom_endpoint, assemble_three_layer_turn = ws.EndpointConfigPayload, ws.ChatTurnPayload, ws.configure_custom_endpoint, ws.assemble_three_layer_turn
-        import json
-        gui_path = WORKSPACE / "web" / "index.html"
-        self.assertTrue(gui_path.exists())
-        html = gui_path.read_text(encoding="utf-8")
-        # Verify Claude Web Opus 5.5 design tokens & controls
-        for token in ["#faf9f5", "#181715", "#cc785c", "claude-opus-5-5", "modal-endpoint-studio", "select-effort", "select-thinking-display"]:
-            self.assertIn(token, html)
-
-        # Verify custom endpoint configuration API
-        ep_resp = configure_custom_endpoint(EndpointConfigPayload(
-            base_url="https://llm.heretek.one/v1/messages",
-            wire_protocol="anthropic-messages",
-            model="claude-opus-5-5",
-            api_key="hk-test-key-123456789",
-        ))
-        ep_data = json.loads(ep_resp.body.decode("utf-8"))
-        self.assertTrue(ep_data["allowlisted"])
-        self.assertTrue(ep_data["vault_sealed"])
-
-        # Verify 3-layer chat turn assembly via web server
-        turn_resp = assemble_three_layer_turn(ChatTurnPayload(
-            prompt="Architect a new microservice",
-            model="claude-opus-5-5",
-            effort="xhigh",
-            thinking_display="summarized",
-        ))
-        turn_data = json.loads(turn_resp.body.decode("utf-8"))
-        self.assertEqual(turn_data["output_config"]["effort"], "xhigh")
-        self.assertEqual(turn_data["thinking"]["type"], "adaptive")
-
-
 if __name__ == "__main__":
     unittest.main(verbosity=2)

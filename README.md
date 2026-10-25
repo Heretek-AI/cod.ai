@@ -16,6 +16,7 @@ cod.ai/
 ├── AGENTS.md                                  # Multi-agent specialist charter & Pi interoperability spec
 ├── pyproject.toml                             # Python 3.11+ package & CLI entrypoint (`cod`)
 ├── .gitignore                                 # Standard Python/Node/worktree ignores
+├── DESIGN.md                                  # Web chat GUI: architecture, API contract & visual tokens
 ├── docs/
 │   ├── 00_osint_recon.md                      # Phase 0: Live OSINT & Proxmox VM Reconnaissance
 │   ├── 01_harness_decision_matrix.md          # Phase 1: Six-Invariant Harness Evaluation Matrix (ADR-001)
@@ -28,7 +29,8 @@ cod.ai/
 │   └── pi_specialist_bridge/SKILL.md          # Cache-Safe @heretek-ai/pi-configs Charter Loader Playbook
 ├── src/
 │   ├── __init__.py
-│   ├── cli.py                                 # Unified `cod` Headless CLI (`cod doctor`, `cod auto-mode critique`, `cod simple`)
+│   ├── cli.py                                 # Unified `cod` Headless CLI (`cod doctor`, `cod auto-mode critique`, `cod simple`, `cod serve`)
+│   ├── web_server.py                          # Local web chat server: streams Claude replies to the GUI, keeps credentials server-side
 │   ├── prompts/                               # Phase 2: Dual-Polarity Prompt Engine
 │   │   ├── architect_mode.py                  # Mode A: GOAL XML framing + >100-line 4-stage iterative loop + anti-truncation
 │   │   ├── implementer_mode.py                # Mode B: Read/Edit/Write/Glob/Grep enforcement + Bash file-op blocker
@@ -53,8 +55,11 @@ cod.ai/
 │   ├── create_tracking_issue.sh               # One-click script to open the tracking issue on Heretek-AI/pi-configs
 │   ├── src/cod_ai_invariant_bridge.ts         # TypeScript extension fixing `/specialist` Layer-3 cache preservation
 │   └── agents/                                # Custom specialists (#72 holistic-web-architect, #73 attention-budget-governor, #74 adversarial-verifier)
+├── web/
+│   └── index.html                             # Single-page chat GUI served by `cod serve`
 └── tests/
-    └── test_cod_ai_full_suite.py              # 16 end-to-end unit & integration tests across Phases 2-5
+    ├── test_cod_ai_full_suite.py              # 16 end-to-end unit & integration tests across Phases 2-5
+    └── test_web_server.py                     # Web chat server tests (fake Anthropic client, no network)
 ```
 
 ---
@@ -74,6 +79,28 @@ PYTHONPATH=. python3 src/cli.py auto-mode critique
 # 4. Emit the 4-line `COD_SIMPLE=true` minimal benchmark prompt
 PYTHONPATH=. python3 src/cli.py simple
 
-# 5. Open the upstream tracking issue on Heretek-AI/pi-configs
+# 5. Run the web chat server tests
+PYTHONPATH=. python3 tests/test_web_server.py
+
+# 6. Open the upstream tracking issue on Heretek-AI/pi-configs
 GITHUB_TOKEN=ghp_your_token ./pi_configs_upstream/create_tracking_issue.sh
 ```
+
+---
+
+## Web Chat GUI
+
+`cod serve` starts a local chat interface at `http://127.0.0.1:8642` that streams replies from the Claude Messages API.
+
+```bash
+pip install -e .                       # anthropic, fastapi, uvicorn
+export ANTHROPIC_API_KEY=sk-ant-...    # or ANTHROPIC_AUTH_TOKEN, or an `ant auth login` profile
+cod serve                              # or: PYTHONPATH=. python3 src/cli.py serve
+```
+
+- Credentials stay on the server; the browser never sees a key. Set `ANTHROPIC_BASE_URL` to route through a gateway such as the local credential proxy.
+- Pick the model, effort level and thinking display per message. Thinking summaries stream into a collapsible panel, and each reply shows its token usage, including cache reads.
+- Conversations are kept in the browser's local storage. The system prompt (base prompt plus `CLAUDE.md` and `AGENTS.md`) is built once at startup and the history is append-only, so prompt caching holds across turns. Set `COD_PROJECT_CONTEXT=0` to leave the project files out.
+- Refusals use the server-side `fallbacks: "default"` retry on models that support it. Set `COD_FALLBACKS=0` to turn it off, for example behind a gateway that does not accept the beta.
+
+See [`DESIGN.md`](DESIGN.md) for the request flow and the event stream contract.

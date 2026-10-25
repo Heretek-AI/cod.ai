@@ -10,6 +10,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [{name = "Heretek-AI", email = "argon@heretek.ai"}]
+dependencies = [
+    "anthropic>=2.3",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+]
 
 [project.scripts]
 cod = "src.cli:main"

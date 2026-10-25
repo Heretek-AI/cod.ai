@@ -6,6 +6,7 @@ Supports:
   - `cod auto-mode critique`: Runs the `17_auto_mode_critique.md` permission rule auditor.
   - `cod simple`: Prints the 4-line `COD_SIMPLE=true` minimal benchmark prompt.
   - `cod verify`: Runs the 5-Step Universal Baseline via the Adversarial Verification Agent.
+  - `cod serve`: Starts the local web chat GUI (`src/web_server.py`) on http://127.0.0.1:8642.
 """
 import argparse
 import json
@@ -25,9 +26,18 @@ def main(argv: list[str] | None = None) -> int:
     crit_parser = sub.add_parser("auto-mode", help="Auto-mode security classifier utilities")
     crit_parser.add_argument("action", choices=["critique"], help="Audit permission rules for conflicts and gaps")
     sub.add_parser("simple", help="Emit 4-line COD_SIMPLE=true benchmark prompt")
+    serve_parser = sub.add_parser("serve", help="Start the local web chat GUI")
+    serve_parser.add_argument("--host", default="127.0.0.1", help="Interface to bind (default: 127.0.0.1)")
+    serve_parser.add_argument("--port", type=int, default=8642, help="Port to listen on (default: 8642)")
 
     args = parser.parse_args(argv)
     workspace = str(Path(__file__).resolve().parent.parent)
+
+    if args.subcommand == "serve":
+        from src.web_server import run
+
+        run(host=args.host, port=args.port)
+        return 0
 
     if args.subcommand == "simple":
         print(build_simple_mode_prompt(cwd=workspace, fixed_date="2026-10-24"))
