@@ -1,0 +1,15 @@
+# Pi-YAML-Hooks for adversarial-verifier
+hooks:
+  - event: tool.before.Edit
+    action: block
+    exit_code: 2
+    reason: "Adversarial Verifier is strictly read-only on project files."
+  - event: tool.before.Write
+    condition: "path_not_under('/tmp/')"
+    action: block
+    exit_code: 2
+    reason: "Adversarial Verifier may only write ephemeral harnesses inside /tmp/."
+  - event: tool.before.dispatch_specialist
+    action: block
+    exit_code: 2
+    reason: "Adversarial Verifier cannot spawn child agents."

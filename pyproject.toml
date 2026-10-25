@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cod-ai"
+version = "0.1.0"
+description = "Next-generation dual-polarity agentic coding harness and orchestration platform"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Heretek-AI", email = "argon@heretek.ai"}]
+
+[project.scripts]
+cod = "src.cli:main"

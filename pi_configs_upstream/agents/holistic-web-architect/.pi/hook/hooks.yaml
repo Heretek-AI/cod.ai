@@ -1,0 +1,16 @@
+# Pi-YAML-Hooks for holistic-web-architect
+hooks:
+  - event: tool.before.Bash
+    action: block
+    exit_code: 2
+    reason: "Mode A (Holistic Web Architect) forbids raw Bash execution to preserve n^2 self-attention purity."
+  - event: file.changed
+    action: verify_no_truncation
+    exit_code: 2
+    forbidden_patterns:
+      - "// rest of code"
+      - "# rest of code"
+      - "// ... existing"
+      - "# ... existing"
+      - "TODO: implement"
+      - "FIXME: implement"
