@@ -9,7 +9,7 @@
 3. If the response stops for `tool_use`, each call is checked against the permission policy (deny, allow, or ask the user), run, and its result sent back in the next request. This repeats until Claude ends its turn, up to 50 rounds.
 4. Every message is written to `.cod/sessions/<id>.jsonl` as soon as it is final.
 
-The request uses the same settings as the web chat (table below) plus `tools`, each with `eager_input_streaming: true`. The system prompt (base instructions, the project root, and the project's `CLAUDE.md` and `AGENTS.md`) is built when the session starts and stored in its header, and the tool list never changes, so every request in a session shares a cacheable prefix, including after a resume.
+The request uses the same settings as the web chat (table below) plus `tools` (each client tool with `eager_input_streaming: true`, then the `memory_20250818` tool) and server-side compaction: `context_management` with a `compact_20260112` edit triggered at 150,000 input tokens, under beta `compact-2026-01-12`. When it triggers, the response starts with a `compaction` block. That block is stored with the rest of the assistant content and sent back unchanged, and the API reads the conversation from it onward. The system prompt (base instructions, the project root, and the project's `CLAUDE.md` and `AGENTS.md`) is built when the session starts and stored in its header, and so is whether the memory tool is on, so the tool list never changes, so every request in a session shares a cacheable prefix, including after a resume.
 
 | Stop reason | Handling |
 | :--- | :--- |

@@ -4,6 +4,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import sys
 import tempfile
 import unittest
@@ -22,7 +23,8 @@ from src.agent.engine import Agent, AgentConfig, ApiError, FallbackNotice, TextD
 from src.agent.permissions import InvalidRuleError, PermissionPolicy, Rule
 from src.agent.prompt import build_agent_prompt
 from src.agent.session import Session, SessionError
-from src.agent.tools import MAX_OUTPUT_CHARS, Toolbox, api_tool_definitions, sanitized_env
+from src.agent.models import COMPACT_BETA, FALLBACK_BETA
+from src.agent.tools import MAX_OUTPUT_CHARS, ToolError, Toolbox, api_tool_definitions, bwrap_command, sanitized_env
 
 
 class TempProject(unittest.TestCase):
@@ -120,9 +122,102 @@ class ToolTests(TempProject):
 
     def test_tool_definitions_stream_eagerly(self):
         tools = api_tool_definitions()
-        self.assertEqual([t["name"] for t in tools], ["read_file", "write_file", "edit_file", "glob", "grep", "bash"])
-        self.assertTrue(all(t["eager_input_streaming"] for t in tools))
-        self.assertTrue(all(t["input_schema"]["additionalProperties"] is False for t in tools))
+        self.assertEqual([t["name"] for t in tools], ["read_file", "write_file", "edit_file", "glob", "grep", "bash", "memory"])
+        self.assertTrue(all(t["eager_input_streaming"] for t in tools[:-1]))
+        self.assertTrue(all(t["input_schema"]["additionalProperties"] is False for t in tools[:-1]))
+        # The memory tool's schema belongs to the API: it is sent by type only.
+        self.assertEqual(tools[-1], {"type": "memory_20250818", "name": "memory"})
+        self.assertEqual([t["name"] for t in api_tool_definitions(memory=False)][-1], "bash")
+
+    def test_file_tools_cannot_write_cod_settings(self):
+        for name, tool_input in [
+            ("write_file", {"path": ".cod/settings.json", "content": "{}"}),
+            ("edit_file", {"path": ".cod/settings.json", "old_string": "a", "new_string": "b"}),
+            ("write_file", {"path": "./.cod/sessions/x.jsonl", "content": ""}),
+        ]:
+            with self.subTest(tool_input=tool_input):
+                result = self.toolbox.run(name, tool_input)
+                self.assertTrue(result.is_error)
+                self.assertIn(".cod/", result.content)
+        self.assertFalse((self.root / ".cod" / "settings.json").exists())
+
+    def test_bwrap_command_confines_writes(self):
+        home = self.root / "home"
+        home.mkdir()
+        (home / ".gitconfig").write_text("[user]\n", encoding="utf-8")
+        (self.root / ".cod").mkdir()
+        argv = bwrap_command(self.root, "make test", home)
+        pairs = [tuple(argv[i:i + 3]) for i in range(len(argv) - 2)]
+        self.assertIn(("--ro-bind", "/", "/"), pairs)
+        self.assertIn(("--bind", str(self.root), str(self.root)), pairs)
+        self.assertIn(("--ro-bind", str(self.root / ".cod"), str(self.root / ".cod")), pairs)
+        # Home is hidden before the project is bound, so a project under $HOME stays writable.
+        self.assertLess(argv.index(str(home)), argv.index("--bind"))
+        self.assertIn(str(home / ".gitconfig"), argv)
+        self.assertEqual(argv[-3:], ["bash", "-c", "make test"])
+
+    @unittest.skipUnless(shutil.which("bwrap"), "bubblewrap is not installed")
+    def test_sandboxed_shell_writes_only_the_project(self):
+        (self.root / ".cod").mkdir()
+        toolbox = Toolbox(self.root, sandbox="on")
+        result = toolbox.run("bash", {"command": "echo hi > ok.txt; touch /etc/cod-test; echo x > .cod/settings.json; true"})
+        self.assertEqual((self.root / "ok.txt").read_text(), "hi\n")
+        self.assertFalse(Path("/etc/cod-test").exists())
+        self.assertFalse((self.root / ".cod" / "settings.json").exists())
+        self.assertEqual(result.content.count("Read-only file system"), 2)
+
+    def test_sandbox_modes(self):
+        with mock.patch("shutil.which", return_value=None):
+            self.assertFalse(Toolbox(self.root).sandboxed)
+            with self.assertRaises(ToolError):
+                Toolbox(self.root, sandbox="on")
+        with mock.patch("shutil.which", return_value="/usr/bin/bwrap"):
+            self.assertTrue(Toolbox(self.root).sandboxed)
+            self.assertFalse(Toolbox(self.root, sandbox="off").sandboxed)
+
+
+class MemoryToolTests(TempProject):
+    def memory(self, **tool_input):
+        return self.toolbox.run("memory", tool_input)
+
+    def test_commands(self):
+        self.assertIn("(empty)", self.memory(command="view", path="/memories").content)
+        self.assertFalse(self.memory(command="create", path="/memories/notes.md", file_text="one\nthree\n").is_error)
+        self.assertTrue((self.root / ".cod" / "memory" / "notes.md").is_file())
+        self.assertFalse(self.memory(command="insert", path="/memories/notes.md", insert_line=1, insert_text="two").is_error)
+        self.assertFalse(self.memory(command="str_replace", path="/memories/notes.md", old_str="three", new_str="3").is_error)
+        view = self.memory(command="view", path="/memories/notes.md").content
+        self.assertEqual([line.split("\t")[1] for line in view.splitlines()], ["one", "two", "3"])
+        self.assertIn("2\ttwo", self.memory(command="view", path="/memories/notes.md", view_range=[2, 2]).content)
+        self.assertFalse(self.memory(command="rename", old_path="/memories/notes.md", new_path="/memories/a/b.md").is_error)
+        self.assertIn("/memories/a/b.md", self.memory(command="view", path="/memories").content)
+        self.assertFalse(self.memory(command="delete", path="/memories/a").is_error)
+        self.assertIn("(empty)", self.memory(command="view", path="/memories").content)
+
+    def test_errors_and_escapes(self):
+        outside = Path(tempfile.mkdtemp())
+        (self.root / ".cod" / "memory").mkdir(parents=True)
+        (self.root / ".cod" / "memory" / "link").symlink_to(outside)
+        for tool_input in [
+            {"command": "create", "path": "/etc/passwd", "file_text": "x"},
+            {"command": "create", "path": "/memories/../../escape.md", "file_text": "x"},
+            {"command": "create", "path": "/memories/link/x.md", "file_text": "x"},
+            {"command": "delete", "path": "/memories"},
+            {"command": "view", "path": "/memories/missing.md"},
+            {"command": "str_replace", "path": "/memories/missing.md", "old_str": "a", "new_str": "b"},
+            {"command": "explode", "path": "/memories"},
+            {"command": "create", "path": "/memories/x.md"},
+        ]:
+            with self.subTest(tool_input=tool_input):
+                self.assertTrue(self.toolbox.run("memory", tool_input).is_error)
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertFalse((self.root / "escape.md").exists())
+
+    def test_memory_is_allowed_by_default_but_rules_apply(self):
+        self.assertEqual(PermissionPolicy().decide("memory", "create /memories/a.md"), "allow")
+        policy = PermissionPolicy(deny=[Rule.parse("memory(delete *)")])
+        self.assertEqual(policy.decide("memory", "delete /memories/a.md"), "deny")
+        self.assertEqual(self.toolbox.describe("memory", {"command": "rename", "old_path": "/memories/a", "new_path": "/memories/b"}), "rename /memories/a")
 
 
 class PermissionTests(TempProject):
@@ -178,6 +273,8 @@ class SessionTests(TempProject):
         self.assertEqual(loaded.messages, session.messages)
         self.assertEqual(len(loaded.messages), 2)
         self.assertEqual(Session.find(self.root, session.id).messages, loaded.messages)
+        self.assertTrue(loaded.memory_tool)
+        self.assertFalse(Session.load(Session.create(self.root, "claude-opus-5-5", "s", memory_tool=False).path).memory_tool)
 
     def test_missing_and_corrupt_sessions(self):
         with self.assertRaises(SessionError):
@@ -237,6 +334,10 @@ class EngineTests(TempProject):
         self.assertEqual(params["thinking"], {"type": "adaptive", "display": "summarized"})
         self.assertEqual(params["cache_control"], {"type": "ephemeral"})
         self.assertEqual(params["fallbacks"], "default")
+        self.assertEqual(params["betas"], [FALLBACK_BETA, COMPACT_BETA])
+        self.assertEqual(params["context_management"], {"edits": [
+            {"type": "compact_20260112", "trigger": {"type": "input_tokens", "value": 150_000}},
+        ]})
         self.assertEqual(params["tools"], api_tool_definitions())
         self.assertNotIn("tool_choice", params)
         self.assertEqual(params["messages"], [{"role": "user", "content": "Hello"}])
@@ -357,10 +458,30 @@ class EngineTests(TempProject):
         self.assertEqual(events[-1].model, "claude-opus-5")
         self.assertEqual(self.session.messages[-1]["content"], content[1:])
 
+    def test_compaction_blocks_are_kept_and_resent(self):
+        compaction = {"type": "compaction", "content": "Summary of earlier work.", "encrypted_content": None, "signature": "sig-c", "tool_changes": None}
+        client = FakeClient(
+            make_message([compaction, {"type": "text", "text": "Continuing."}]),
+            make_message([{"type": "text", "text": "Next."}]),
+        )
+        agent = self.make_agent(client)
+        events = self.run_turn(agent)
+        self.assertTrue(any(isinstance(e, engine.CompactionNotice) for e in events))
+        self.assertEqual(self.session.messages[-1]["content"][0], compaction)
+        self.run_turn(agent, "More")
+        self.assertEqual(client.calls[1]["messages"][1]["content"][0], compaction)
+
+    def test_compaction_can_be_turned_off(self):
+        client = FakeClient(make_message([{"type": "text", "text": "ok"}]))
+        self.run_turn(self.make_agent(client, compact_at=None, fallbacks=False))
+        self.assertNotIn("context_management", client.calls[0])
+        self.assertNotIn("betas", client.calls[0])
+
     def test_haiku_has_no_fallbacks(self):
         client = FakeClient(make_message([{"type": "text", "text": "ok"}], model="claude-haiku-5-5"))
         self.run_turn(self.make_agent(client, model="claude-haiku-5-5", effort="low"))
         self.assertNotIn("fallbacks", client.calls[0])
+        self.assertEqual(client.calls[0]["betas"], [COMPACT_BETA])
         self.assertEqual(client.calls[0]["output_config"], {"effort": "low"})
 
     def test_api_errors_end_the_turn(self):
@@ -430,6 +551,17 @@ class CliTests(TempProject):
             make_message([{"type": "text", "text": "Made."}]),
         ))
         self.assertTrue((self.root / "made.txt").exists())
+
+    def test_no_memory_and_compaction_flags(self):
+        client = FakeClient(make_message([{"type": "text", "text": "ok"}]))
+        self.cod("-p", "x", "--no-memory", "--no-compact", client=client)
+        self.assertNotIn("memory", [t["name"] for t in client.calls[0]["tools"]])
+        self.assertNotIn("context_management", client.calls[0])
+        # A resumed session keeps the tool list it started with.
+        client = FakeClient(make_message([{"type": "text", "text": "ok"}]))
+        self.cod("-c", "-p", "y", "--compact-at", "90000", client=client)
+        self.assertNotIn("memory", [t["name"] for t in client.calls[0]["tools"]])
+        self.assertEqual(client.calls[0]["context_management"]["edits"][0]["trigger"]["value"], 90_000)
 
     def test_continue_resumes_the_latest_session(self):
         self.cod("-p", "first", client=FakeClient(make_message([{"type": "text", "text": "one"}])))

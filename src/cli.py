@@ -13,7 +13,7 @@ import ipaddress
 from pathlib import Path
 import sys
 
-from src.agent.models import DEFAULT_MODEL, EFFORT_LEVELS, MODELS
+from src.agent.models import DEFAULT_COMPACT_AT, DEFAULT_MODEL, EFFORT_LEVELS, MODELS
 
 
 def is_loopback_host(host: str) -> bool:
@@ -61,6 +61,17 @@ def agent_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hide-thinking", action="store_true", help="Don't print Claude's thinking summaries.")
     parser.add_argument("--no-project-files", action="store_true", help="Leave CLAUDE.md and AGENTS.md out of a new session's system prompt.")
     parser.add_argument("--no-fallbacks", action="store_true", help="Turn off the server-side refusal fallback.")
+    parser.add_argument("--no-memory", action="store_true", help="Start a session without the memory tool (.cod/memory/).")
+    parser.add_argument(
+        "--sandbox", choices=["auto", "on", "off"], default="auto",
+        help="Run shell commands under bubblewrap: auto uses it when installed, on requires it (default: auto).",
+    )
+    compact = parser.add_mutually_exclusive_group()
+    compact.add_argument(
+        "--compact-at", type=int, metavar="TOKENS", default=DEFAULT_COMPACT_AT,
+        help=f"Input size at which the API summarizes earlier context (default: {DEFAULT_COMPACT_AT:,}).",
+    )
+    compact.add_argument("--no-compact", action="store_true", help="Turn off server-side compaction.")
     return parser
 
 
@@ -76,7 +87,7 @@ def agent_main(argv: list[str], client=None, stdin=None, stdout=None, stderr=Non
     from src.agent.prompt import build_agent_prompt
     from src.agent.session import Session, SessionError
     from src.agent import terminal
-    from src.agent.tools import Toolbox
+    from src.agent.tools import ToolError, Toolbox
 
     root = Path(args.root).resolve()
     if not root.is_dir():
@@ -93,10 +104,11 @@ def agent_main(argv: list[str], client=None, stdin=None, stdout=None, stderr=Non
             session = Session.find(root, args.resume)
         else:
             system_prompt = build_agent_prompt(root, include_project_files=not args.no_project_files)
-            session = Session.create(root, args.model or DEFAULT_MODEL, system_prompt)
+            session = Session.create(root, args.model or DEFAULT_MODEL, system_prompt, memory_tool=not args.no_memory)
         mode = "allow-all" if args.allow_all else "accept-edits" if args.accept_edits else "default"
         policy = PermissionPolicy.from_settings(root, mode)
-    except (SessionError, InvalidRuleError) as exc:
+        toolbox = Toolbox(root, sandbox=args.sandbox, memory=session.memory_tool)
+    except (SessionError, InvalidRuleError, ToolError) as exc:
         stderr.write(f"cod: {exc}\n")
         return 1
 
@@ -117,8 +129,9 @@ def agent_main(argv: list[str], client=None, stdin=None, stdout=None, stderr=Non
         effort=args.effort,
         thinking_display="omitted" if args.hide_thinking else "summarized",
         fallbacks=not args.no_fallbacks,
+        compact_at=None if args.no_compact else args.compact_at,
     )
-    agent = Agent(client, session, Toolbox(root), policy, approver, config)
+    agent = Agent(client, session, toolbox, policy, approver, config)
 
     if prompt is not None:
         renderer = terminal.Renderer(stdout, stderr, style, show_thinking=not args.hide_thinking)

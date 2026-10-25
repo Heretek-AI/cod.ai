@@ -5,7 +5,9 @@ A rule is `tool` or `tool(pattern)`, where the pattern is a shell-style glob
 matched against the call's summary: the command for `bash`, the path for the
 file tools, the pattern for `glob` and `grep`. Rules come in three lists:
 `deny` always wins, then `allow`, then `ask`; anything unmatched falls back to
-the mode's default (reads are allowed, edits and shell commands ask).
+the mode's default (reads and the memory tool are allowed, edits and shell
+commands ask). The memory tool's summary is its command and path, such as
+`create /memories/notes.md`.
 
 Rules are read from `.cod/settings.json` in the project:
 
@@ -25,6 +27,8 @@ Decision = Literal["allow", "ask", "deny"]
 Mode = Literal["default", "accept-edits", "allow-all"]
 
 EDIT_TOOLS = frozenset({"write_file", "edit_file"})
+# The memory tool only touches `.cod/memory/`, so it runs without asking.
+AUTO_ALLOWED = READ_ONLY_TOOLS | {"memory"}
 RULE_PATTERN = re.compile(r"^(?P<tool>[a-z_]+)(?:\((?P<pattern>.*)\))?$")
 
 
@@ -85,7 +89,7 @@ class PermissionPolicy:
             return "allow"
         if any(r.matches(tool, summary) for r in self.ask):
             return "allow" if self.mode == "allow-all" else "ask"
-        if tool in READ_ONLY_TOOLS or self.mode == "allow-all":
+        if tool in AUTO_ALLOWED or self.mode == "allow-all":
             return "allow"
         if tool in EDIT_TOOLS and self.mode == "accept-edits":
             return "allow"

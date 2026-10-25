@@ -16,6 +16,7 @@ from src.agent.engine import (
     ApiError,
     Approval,
     BlockStart,
+    CompactionNotice,
     Event,
     FallbackNotice,
     TextDelta,
@@ -97,6 +98,9 @@ class Renderer:
         elif isinstance(event, FallbackNotice):
             self.finish_block()
             self.line(self.info, self.style.dim(f"(continuing on {event.to_model or 'a fallback model'})"))
+        elif isinstance(event, CompactionNotice):
+            self.finish_block()
+            self.line(self.info, self.style.dim("(earlier conversation summarized to free up context)"))
         elif isinstance(event, ToolCall):
             self.finish_block()
             self.line(self.info, self.style.bold(f"● {event.name}") + f" {one_line(event.summary)}")
@@ -256,6 +260,7 @@ def run_repl(agent: Agent, renderer: Renderer, read_line: Callable[[str], str] =
             if isinstance(last, TurnEnd):
                 for key, value in last.usage.items():
                     totals[key] = totals.get(key, 0) + value
+                renderer.line(renderer.info, style.dim(format_usage(last.usage)))
 
 
 def is_interactive(stream: TextIO = sys.stdin) -> bool:

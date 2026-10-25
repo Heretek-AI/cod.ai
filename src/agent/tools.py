@@ -2,19 +2,29 @@
 Client-side tools the agent can call (`src/agent/tools.py`).
 
 Every path is resolved against the project root and rejected if it escapes it
-(`..`, absolute paths elsewhere, symlinks out). Tool inputs come from the model,
-so each one is validated against a pydantic model before anything runs, and
-failures come back as `is_error` tool results rather than exceptions.
+(`..`, absolute paths elsewhere, symlinks out). The file tools can't write
+into `.cod/`, where the permission settings live. Tool inputs come from the
+model, so each one is validated against a pydantic model before anything runs,
+and failures come back as `is_error` tool results rather than exceptions.
+
+Shell commands run under bubblewrap (`bwrap`) when it is installed: the file
+system is read-only except the project root and a private `/tmp`, the home
+directory is hidden apart from `~/.gitconfig`, and `.cod/` stays read-only.
+The network is left on so package managers and git keep working.
 """
 from dataclasses import dataclass
 import fnmatch
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field, ValidationError
+
+from src.agent.memory_tool import MEMORY_TOOL, MemoryStore, MemoryToolError
+from src.agent.memory_tool import describe as describe_memory
 
 MAX_READ_LINES = 2000
 MAX_OUTPUT_CHARS = 30_000
@@ -142,15 +152,42 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
 ]
 
-TOOL_NAMES = tuple(t["name"] for t in TOOL_DEFINITIONS)
+TOOL_NAMES = tuple(t["name"] for t in TOOL_DEFINITIONS) + ("memory",)
 READ_ONLY_TOOLS = frozenset({"read_file", "glob", "grep"})
+PROTECTED_DIR = ".cod"
+
+SandboxMode = Literal["auto", "on", "off"]
 
 
-def api_tool_definitions(eager_input_streaming: bool = True) -> list[dict[str, Any]]:
-    """Tool definitions for a streaming request; eager streaming sends large inputs as they are generated."""
-    if not eager_input_streaming:
-        return [dict(t) for t in TOOL_DEFINITIONS]
-    return [{**t, "eager_input_streaming": True} for t in TOOL_DEFINITIONS]
+def api_tool_definitions(eager_input_streaming: bool = True, memory: bool = True) -> list[dict[str, Any]]:
+    """
+    Tool definitions for a streaming request; eager streaming sends large inputs
+    as they are generated. The memory tool's schema is defined by the API, so it
+    is sent by type only.
+    """
+    tools = [{**t, "eager_input_streaming": True} if eager_input_streaming else dict(t) for t in TOOL_DEFINITIONS]
+    if memory:
+        tools.append(dict(MEMORY_TOOL))
+    return tools
+
+
+def bwrap_command(root: Path, command: str, home: Path | None) -> list[str]:
+    """The bubblewrap invocation that runs `command` in `root` with the rest of the system read-only."""
+    args = [
+        "bwrap", "--die-with-parent", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
+        "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
+    ]
+    if home and home.is_dir() and home != Path("/"):
+        args += ["--tmpfs", str(home)]
+        gitconfig = home / ".gitconfig"
+        if gitconfig.is_file():
+            args += ["--ro-bind", str(gitconfig), str(gitconfig)]
+    # Later mounts win, so the project is writable even under $HOME or /tmp.
+    args += ["--bind", str(root), str(root)]
+    protected = root / PROTECTED_DIR
+    if protected.is_dir():
+        args += ["--ro-bind", str(protected), str(protected)]
+    return args + ["--chdir", str(root), "bash", "-c", command]
 
 
 def sanitized_env(base: dict[str, str] | None = None) -> dict[str, str]:
@@ -167,8 +204,13 @@ def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
 class Toolbox:
     """Runs tool calls against one project root."""
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, sandbox: SandboxMode = "auto", memory: bool = True) -> None:
         self.root = Path(root).resolve()
+        has_bwrap = shutil.which("bwrap") is not None
+        if sandbox == "on" and not has_bwrap:
+            raise ToolError("--sandbox on needs bubblewrap (bwrap), which is not installed")
+        self.sandboxed = sandbox != "off" and has_bwrap
+        self.memory = MemoryStore(self.root) if memory else None
 
     # ---------- paths ----------
 
@@ -177,6 +219,13 @@ class Toolbox:
         if candidate != self.root and not candidate.is_relative_to(self.root):
             raise ToolError(f"{raw} is outside the project root")
         return candidate
+
+    def resolve_writable(self, raw: str) -> Path:
+        path = self.resolve(raw)
+        protected = self.root / PROTECTED_DIR
+        if path == protected or path.is_relative_to(protected):
+            raise ToolError(f"{raw} is inside {PROTECTED_DIR}/, which holds cod's own settings and sessions")
+        return path
 
     def relative(self, path: Path) -> str:
         return path.relative_to(self.root).as_posix() or "."
@@ -187,6 +236,8 @@ class Toolbox:
             return str(tool_input.get("command", ""))
         if name in ("glob", "grep"):
             return str(tool_input.get("pattern", ""))
+        if name == "memory":
+            return describe_memory(tool_input)
         return str(tool_input.get("path", ""))
 
     # ---------- dispatch ----------
@@ -200,6 +251,13 @@ class Toolbox:
             "grep": (GrepInput, self.grep),
             "bash": (BashInput, self.bash),
         }
+        if name == "memory" and self.memory:
+            try:
+                return ToolResult(_truncate(self.memory.run(tool_input)))
+            except MemoryToolError as exc:
+                return ToolResult(str(exc), is_error=True)
+            except OSError as exc:
+                return ToolResult(f"memory failed: {exc.strerror or exc}", is_error=True)
         if name not in handlers:
             return ToolResult(f"Unknown tool {name!r}.", is_error=True)
         model, handler = handlers[name]
@@ -239,7 +297,7 @@ class Toolbox:
         return body
 
     def write_file(self, args: WriteFileInput) -> str:
-        path = self.resolve(args.path)
+        path = self.resolve_writable(args.path)
         if path.is_dir():
             raise ToolError(f"{args.path} is a directory")
         existed = path.exists()
@@ -249,7 +307,7 @@ class Toolbox:
         return f"{verb} {self.relative(path)} ({len(args.content.splitlines())} lines)."
 
     def edit_file(self, args: EditFileInput) -> str:
-        path = self.resolve(args.path)
+        path = self.resolve_writable(args.path)
         if not path.is_file():
             raise ToolError(f"{args.path} is not a file")
         text = path.read_text(encoding="utf-8")
@@ -314,8 +372,9 @@ class Toolbox:
 
     def bash(self, args: BashInput) -> str:
         try:
+            argv = bwrap_command(self.root, args.command, Path.home()) if self.sandboxed else ["bash", "-c", args.command]
             proc = subprocess.run(
-                ["bash", "-c", args.command],
+                argv,
                 cwd=self.root,
                 env=sanitized_env(),
                 capture_output=True,

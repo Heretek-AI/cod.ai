@@ -2,7 +2,7 @@
 
 A coding agent for the terminal, plus a local web chat, built on the Claude Messages API with the Anthropic Python SDK.
 
-`cod` gives Claude six tools in your project (read, write and edit files, glob, grep, and a shell), asks before it edits or runs anything, and saves every session so you can pick it up later.
+`cod` gives Claude tools in your project (read, write and edit files, glob, grep, a shell, and a memory folder), asks before it edits or runs anything, and saves every session so you can pick it up later. Long sessions are compacted by the API, so they can keep going past the context window.
 
 ## Install
 
@@ -36,8 +36,12 @@ cod --resume 20261025-164712-76741b
 | `--hide-thinking` | Don't request or print thinking summaries |
 | `--no-project-files` | Leave `CLAUDE.md` and `AGENTS.md` out of a new session's prompt |
 | `--no-fallbacks` | Turn off the server-side refusal fallback |
+| `--sandbox auto\|on\|off` | Run shell commands under bubblewrap; `auto` (default) uses it when `bwrap` is installed |
+| `--compact-at TOKENS` | Input size at which the API summarizes earlier context (default 150,000) |
+| `--no-compact` | Turn off server-side compaction |
+| `--no-memory` | Start a session without the memory tool |
 
-In the interactive session, `/help`, `/session`, `/usage` and `/exit` are available, and Ctrl-C stops the current turn.
+In the interactive session, `/help`, `/session`, `/usage` and `/exit` are available, and Ctrl-C stops the current turn. Token usage is printed after each turn.
 
 ### Permissions
 
@@ -54,7 +58,13 @@ Standing rules go in `.cod/settings.json` in the project. A rule is a tool name,
 }
 ```
 
-All paths are confined to the project root. Shell commands run with stdin closed and with environment variables whose names look like secrets (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`, `*CREDENTIAL*`, `*AUTH*`) removed. The shell is not otherwise sandboxed, so treat `--allow-all` as giving Claude your shell.
+All paths are confined to the project root, and the file tools can't write into `.cod/`. Shell commands run with stdin closed and with environment variables whose names look like secrets (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`, `*CREDENTIAL*`, `*AUTH*`) removed.
+
+When [bubblewrap](https://github.com/containers/bubblewrap) is installed (`apt install bubblewrap`), shell commands also run in a sandbox: everything outside the project and a private `/tmp` is read-only, your home directory is hidden apart from `~/.gitconfig`, and `.cod/` is read-only. The network stays on. Without bubblewrap the shell runs as you, so treat `--allow-all` as giving Claude your shell; `--sandbox on` refuses to start instead.
+
+### Memory
+
+Claude can keep notes for a project in `.cod/memory/` with the memory tool, and checks them at the start of a task. Memory writes don't ask for approval because they can't leave that folder; a rule such as `"deny": ["memory(delete *)"]` restricts them.
 
 ### Sessions
 
@@ -83,7 +93,8 @@ src/
 ├── web_server.py     # FastAPI server for the web chat
 ├── agent/
 │   ├── engine.py     # the tool-use loop
-│   ├── tools.py      # file, search and shell tools
+│   ├── tools.py      # file, search and shell tools, bubblewrap sandbox
+│   ├── memory_tool.py  # the memory tool, stored in .cod/memory/
 │   ├── permissions.py
 │   ├── session.py    # JSONL session files
 │   ├── prompt.py     # system prompt

@@ -18,7 +18,15 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Literal
 
 import anthropic
 
-from src.agent.models import DEFAULT_MODEL, MODELS, fallback_params, history_content
+from src.agent.models import (
+    DEFAULT_COMPACT_AT,
+    DEFAULT_MODEL,
+    MODELS,
+    compaction_params,
+    fallback_params,
+    history_content,
+    merge_params,
+)
 from src.agent.permissions import EDIT_TOOLS, PermissionPolicy, Rule
 from src.agent.session import Session
 from src.agent.tools import Toolbox, ToolResult, api_tool_definitions
@@ -81,6 +89,11 @@ class FallbackNotice:
 
 
 @dataclass
+class CompactionNotice:
+    """The API summarized the earlier conversation to make room."""
+
+
+@dataclass
 class TurnEnd:
     """
     The turn is over. `stop_reason` is the API's on the last response, or
@@ -99,7 +112,7 @@ class ApiError:
     message: str
 
 
-Event = TextDelta | ThinkingDelta | BlockStart | ToolCall | ToolOutput | FallbackNotice | TurnEnd | ApiError
+Event = TextDelta | ThinkingDelta | BlockStart | ToolCall | ToolOutput | FallbackNotice | CompactionNotice | TurnEnd | ApiError
 
 
 @dataclass
@@ -115,6 +128,8 @@ class AgentConfig:
     fallbacks: bool = True
     max_tokens: int = MAX_OUTPUT_TOKENS
     max_tool_rounds: int = MAX_TOOL_ROUNDS
+    # Input size that triggers server-side compaction; None turns it off.
+    compact_at: int | None = DEFAULT_COMPACT_AT
 
 
 @dataclass
@@ -152,7 +167,9 @@ class Agent:
         self.config = config or AgentConfig(model=session.model)
         if self.config.model not in MODELS:
             raise ValueError(f"unsupported model {self.config.model!r}")
-        self.tools = api_tool_definitions()
+        if session.memory_tool and toolbox.memory is None:
+            raise ValueError("this session uses the memory tool, but the toolbox has no memory store")
+        self.tools = api_tool_definitions(memory=session.memory_tool)
         # Results of the tool round in progress, kept so an interrupt can record them.
         self._pending_results: list[dict[str, Any]] | None = None
 
@@ -169,8 +186,7 @@ class Agent:
             # Automatic caching: the breakpoint moves to the newest block each request.
             "cache_control": {"type": "ephemeral"},
         }
-        params.update(fallback_params(cfg.model, cfg.fallbacks))
-        return params
+        return merge_params(params, fallback_params(cfg.model, cfg.fallbacks), compaction_params(cfg.compact_at))
 
     async def send(self, prompt: str) -> AsyncIterator[Event]:
         """Runs one user turn and yields its events, ending with `TurnEnd` or `ApiError`."""
@@ -249,6 +265,8 @@ class Agent:
                         kind = event.content_block.type
                         if kind in ("text", "thinking"):
                             yield BlockStart(kind)
+                        elif kind == "compaction":
+                            yield CompactionNotice()
                         elif kind == "fallback":
                             block = event.content_block.to_dict()
                             yield FallbackNotice((block.get("from") or {}).get("model"), (block.get("to") or {}).get("model"))

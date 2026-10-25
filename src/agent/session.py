@@ -30,15 +30,21 @@ class Session:
     system_prompt: str
     created_at: str
     messages: list[dict[str, Any]] = field(default_factory=list)
+    # Whether the session's tool list includes the memory tool. Fixed at creation
+    # so the tool list, like the system prompt, is the same on every request.
+    memory_tool: bool = True
 
     @classmethod
-    def create(cls, root: str | Path, model: str, system_prompt: str) -> "Session":
+    def create(cls, root: str | Path, model: str, system_prompt: str, memory_tool: bool = True) -> "Session":
         directory = Path(root) / SESSIONS_DIR
         directory.mkdir(parents=True, exist_ok=True)
         created = datetime.now(timezone.utc)
         session_id = created.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(3)
-        session = cls(directory / f"{session_id}.jsonl", session_id, model, system_prompt, created.isoformat())
-        header = {"type": "session", "id": session_id, "model": model, "system_prompt": system_prompt, "created_at": session.created_at}
+        session = cls(directory / f"{session_id}.jsonl", session_id, model, system_prompt, created.isoformat(), memory_tool=memory_tool)
+        header = {
+            "type": "session", "id": session_id, "model": model, "system_prompt": system_prompt,
+            "created_at": session.created_at, "memory_tool": memory_tool,
+        }
         session.path.write_text(json.dumps(header, ensure_ascii=False) + "\n", encoding="utf-8")
         return session
 
@@ -66,7 +72,10 @@ class Session:
                 messages.append(record["message"])
             elif record.get("type") == "rollback":
                 del messages[len(messages) - int(record["count"]):]
-        return cls(path, header["id"], header["model"], header["system_prompt"], header["created_at"], messages)
+        return cls(
+            path, header["id"], header["model"], header["system_prompt"], header["created_at"], messages,
+            memory_tool=bool(header.get("memory_tool", False)),
+        )
 
     @classmethod
     def find(cls, root: str | Path, session_id: str | None = None) -> "Session":
