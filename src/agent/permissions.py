@@ -27,8 +27,9 @@ Decision = Literal["allow", "ask", "deny"]
 Mode = Literal["default", "accept-edits", "allow-all"]
 
 EDIT_TOOLS = frozenset({"write_file", "edit_file"})
-# The memory tool only touches `.cod/memory/`, so it runs without asking.
-AUTO_ALLOWED = READ_ONLY_TOOLS | {"memory"}
+# The memory tool only touches `.cod/memory/` and the explore sub-agent only
+# reads, so both run without asking.
+AUTO_ALLOWED = READ_ONLY_TOOLS | {"memory", "explore"}
 RULE_PATTERN = re.compile(r"^(?P<tool>[a-z_]+)(?:\((?P<pattern>.*)\))?$")
 
 

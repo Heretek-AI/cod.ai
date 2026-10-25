@@ -27,12 +27,15 @@ from src.agent.models import (
     history_content,
     merge_params,
 )
-from src.agent.permissions import EDIT_TOOLS, PermissionPolicy, Rule
+from src.agent.permissions import EDIT_TOOLS, READ_ONLY_TOOLS, PermissionPolicy, Rule
+from src.agent.prompt import build_explore_prompt
 from src.agent.session import Session
-from src.agent.tools import Toolbox, ToolResult, api_tool_definitions
+from src.agent.tools import TOOL_NAMES, Toolbox, ToolResult, api_tool_definitions
 
 MAX_OUTPUT_TOKENS = 64_000
 MAX_TOOL_ROUNDS = 50
+EXPLORE_TOOL_ROUNDS = 25
+MAX_EXPLORE_TASK_CHARS = 20_000
 
 DENIED_MESSAGE = "The user denied this tool call. Don't retry it unchanged; ask them how to proceed if you need it."
 BLOCKED_MESSAGE = "This tool call is blocked by the project's permission settings."
@@ -158,6 +161,7 @@ class Agent:
         policy: PermissionPolicy,
         approver: Approver,
         config: AgentConfig | None = None,
+        read_only: bool = False,
     ) -> None:
         self.client = client
         self.session = session
@@ -169,7 +173,11 @@ class Agent:
             raise ValueError(f"unsupported model {self.config.model!r}")
         if session.memory_tool and toolbox.memory is None:
             raise ValueError("this session uses the memory tool, but the toolbox has no memory store")
-        self.tools = api_tool_definitions(memory=session.memory_tool)
+        self.tools = api_tool_definitions(memory=session.memory_tool, explore=session.explore_tool)
+        if read_only:
+            self.tools = [t for t in self.tools if t["name"] in READ_ONLY_TOOLS]
+        # The current turn's usage; explore sub-agents add theirs to it.
+        self._turn_usage = Usage()
         # Results of the tool round in progress, kept so an interrupt can record them.
         self._pending_results: list[dict[str, Any]] | None = None
 
@@ -192,7 +200,7 @@ class Agent:
         """Runs one user turn and yields its events, ending with `TurnEnd` or `ApiError`."""
         turn_start = len(self.session.messages)
         self.session.append({"role": "user", "content": prompt})
-        usage = Usage()
+        usage = self._turn_usage = Usage()
         model = self.config.model
         rounds = 0
         try:
@@ -301,8 +309,42 @@ class Agent:
             if answer == "always":
                 # Edits are allowed tool-wide; shell commands only for this exact command.
                 self.policy.allow_for_session(Rule(name) if name in EDIT_TOOLS else Rule(name, summary))
-        result: ToolResult = await asyncio.to_thread(self.toolbox.run, name, tool_input)
+        if name == "explore" and self.session.explore_tool:
+            result = await self._explore(tool_input)
+        else:
+            result = await asyncio.to_thread(self.toolbox.run, name, tool_input)
         return ToolOutput(block["id"], name, result.content, result.is_error)
+
+    async def _explore(self, tool_input: dict[str, Any]) -> ToolResult:
+        """Runs a read-only sub-agent on the task and returns its final report."""
+        task = tool_input.get("task")
+        if set(tool_input) != {"task"} or not isinstance(task, str) or not task.strip():
+            return ToolResult("Invalid input for explore: expected {\"task\": \"<non-empty string>\"}.", is_error=True)
+        if len(task) > MAX_EXPLORE_TASK_CHARS:
+            return ToolResult(f"The explore task is too long ({len(task)} characters).", is_error=True)
+        # Everything but the read-only tools is denied outright, whatever the model asks for.
+        policy = PermissionPolicy(deny=[Rule(n) for n in TOOL_NAMES if n not in READ_ONLY_TOOLS])
+        session = Session.ephemeral(self.config.model, build_explore_prompt(self.toolbox.root))
+        config = AgentConfig(
+            model=self.config.model, effort=self.config.effort, thinking_display="omitted",
+            fallbacks=self.config.fallbacks, max_tool_rounds=EXPLORE_TOOL_ROUNDS, compact_at=self.config.compact_at,
+        )
+        sub = Agent(self.client, session, self.toolbox, policy, _deny, config, read_only=True)
+        end: TurnEnd | ApiError | None = None
+        async for event in sub.send(task):
+            if isinstance(event, (TurnEnd, ApiError)):
+                end = event
+        if isinstance(end, TurnEnd):
+            for key, value in end.usage.items():
+                self._turn_usage.totals[key] = self._turn_usage.totals.get(key, 0) + value
+        if isinstance(end, ApiError) or end is None:
+            return ToolResult(f"The explorer failed: {end.message if end else 'no response'}", is_error=True)
+        if end.stop_reason == "refusal":
+            return ToolResult("The explorer declined this task.", is_error=True)
+        report = _last_text(session.messages)
+        if end.stop_reason == "tool_rounds":
+            report = (report + "\n\n" if report else "") + "(The explorer stopped at its tool-round limit before finishing.)"
+        return ToolResult(report or "The explorer finished without a report.", is_error=not report)
 
     def _close_open_tool_calls(self) -> None:
         """After an interrupt, answers any tool calls left without results so the history stays valid."""
@@ -318,3 +360,17 @@ class Agent:
                 {"type": "tool_result", "tool_use_id": tool_id, "content": INTERRUPTED_MESSAGE, "is_error": True}
                 for tool_id in pending
             ]})
+
+
+async def _deny(name: str, summary: str, tool_input: dict[str, Any]) -> Approval:
+    return "no"
+
+
+def _last_text(messages: list[dict[str, Any]]) -> str:
+    """The text of the last assistant message that has any."""
+    for message in reversed(messages):
+        if message["role"] == "assistant" and isinstance(message["content"], list):
+            text = "".join(b.get("text", "") for b in message["content"] if b.get("type") == "text").strip()
+            if text:
+                return text
+    return ""

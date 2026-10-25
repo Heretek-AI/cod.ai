@@ -123,6 +123,8 @@ class ToolTests(TempProject):
     def test_tool_definitions_stream_eagerly(self):
         tools = api_tool_definitions()
         self.assertEqual([t["name"] for t in tools], ["read_file", "write_file", "edit_file", "glob", "grep", "bash", "memory"])
+        with_explore = [t["name"] for t in api_tool_definitions(explore=True)]
+        self.assertEqual(with_explore[-2:], ["explore", "memory"])
         self.assertTrue(all(t["eager_input_streaming"] for t in tools[:-1]))
         self.assertTrue(all(t["input_schema"]["additionalProperties"] is False for t in tools[:-1]))
         # The memory tool's schema belongs to the API: it is sent by type only.
@@ -338,7 +340,7 @@ class EngineTests(TempProject):
         self.assertEqual(params["context_management"], {"edits": [
             {"type": "compact_20260112", "trigger": {"type": "input_tokens", "value": 150_000}},
         ]})
-        self.assertEqual(params["tools"], api_tool_definitions())
+        self.assertEqual(params["tools"], api_tool_definitions(explore=True))
         self.assertNotIn("tool_choice", params)
         self.assertEqual(params["messages"], [{"role": "user", "content": "Hello"}])
 
@@ -477,6 +479,46 @@ class EngineTests(TempProject):
         self.assertNotIn("context_management", client.calls[0])
         self.assertNotIn("betas", client.calls[0])
 
+    def test_explore_runs_a_read_only_sub_agent(self):
+        self.write("src/auth.py", "def login():\n    return check_token()\n")
+        client = FakeClient(
+            # Parent: delegate.
+            make_message([tool_use("p1", "explore", {"task": "Where is login defined?"})], stop_reason="tool_use"),
+            # Explorer: tries a write (denied), then greps, then reports.
+            make_message([tool_use("e1", "write_file", {"path": "pwned.txt", "content": "x"}), tool_use("e2", "grep", {"pattern": "def login"})], stop_reason="tool_use"),
+            make_message([{"type": "text", "text": "login is defined at src/auth.py:1."}]),
+            # Parent: final answer.
+            make_message([{"type": "text", "text": "It's in src/auth.py."}]),
+        )
+        agent = self.make_agent(client)
+        events = self.run_turn(agent, "Find login")
+        explore_output = [e for e in events if isinstance(e, ToolOutput)][0]
+        self.assertEqual(explore_output.name, "explore")
+        self.assertFalse(explore_output.is_error)
+        self.assertEqual(explore_output.content, "login is defined at src/auth.py:1.")
+        self.assertFalse((self.root / "pwned.txt").exists())
+
+        parent_first, sub_first, sub_second, parent_second = client.calls
+        self.assertEqual([t["name"] for t in sub_first["tools"]], ["read_file", "glob", "grep"])
+        self.assertIn("read-only code explorer", sub_first["system"])
+        self.assertEqual(sub_first["messages"], [{"role": "user", "content": "Where is login defined?"}])
+        blocked = sub_second["messages"][-1]["content"][0]
+        self.assertEqual((blocked["tool_use_id"], blocked["is_error"], blocked["content"]), ("e1", True, engine.BLOCKED_MESSAGE))
+        self.assertIn("src/auth.py:1", sub_second["messages"][-1]["content"][1]["content"])
+        # The parent's history holds only the report, and the turn's usage includes the explorer's.
+        self.assertEqual(parent_second["messages"][-1]["content"][0]["content"], "login is defined at src/auth.py:1.")
+        self.assertEqual(events[-1].usage["input_tokens"], 12 * 4)
+        self.assertEqual(len(self.session.messages), 4)
+
+    def test_explore_rejects_bad_input(self):
+        client = FakeClient(
+            make_message([tool_use("p1", "explore", {"task": "  "})], stop_reason="tool_use"),
+            make_message([{"type": "text", "text": "ok"}]),
+        )
+        outputs = [e for e in self.run_turn(self.make_agent(client)) if isinstance(e, ToolOutput)]
+        self.assertTrue(outputs[0].is_error)
+        self.assertEqual(len(client.calls), 2)
+
     def test_haiku_has_no_fallbacks(self):
         client = FakeClient(make_message([{"type": "text", "text": "ok"}], model="claude-haiku-5-5"))
         self.run_turn(self.make_agent(client, model="claude-haiku-5-5", effort="low"))
@@ -554,8 +596,8 @@ class CliTests(TempProject):
 
     def test_no_memory_and_compaction_flags(self):
         client = FakeClient(make_message([{"type": "text", "text": "ok"}]))
-        self.cod("-p", "x", "--no-memory", "--no-compact", client=client)
-        self.assertNotIn("memory", [t["name"] for t in client.calls[0]["tools"]])
+        self.cod("-p", "x", "--no-memory", "--no-explore", "--no-compact", client=client)
+        self.assertEqual([t["name"] for t in client.calls[0]["tools"]][-1], "bash")
         self.assertNotIn("context_management", client.calls[0])
         # A resumed session keeps the tool list it started with.
         client = FakeClient(make_message([{"type": "text", "text": "ok"}]))

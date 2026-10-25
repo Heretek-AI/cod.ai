@@ -8,23 +8,34 @@ browser: the Anthropic client resolves them on the server (`ANTHROPIC_API_KEY`,
 `ANTHROPIC_AUTH_TOKEN`, or an `ant auth login` profile), and `ANTHROPIC_BASE_URL`
 points it at a gateway such as the local credential proxy.
 
-The browser owns the conversation history and sends it back each turn. The
-server only ever appends to it, so prompt caching and preserved thinking keep
-working: assistant turns are echoed back exactly as the API returned them.
+In chat mode the browser owns the conversation history and sends it back each
+turn. The server only ever appends to it, so prompt caching and preserved
+thinking keep working: assistant turns are echoed back exactly as the API
+returned them. Agent mode (`src/agent/web.py`) runs the coding agent on the
+project root instead, with sessions kept on the server.
+
+Two checks guard the API, since it spends the user's credits and agent mode
+touches their files. Every `/api/` request must name a loopback host in its
+`Host` header, which defeats DNS rebinding, and every POST must carry the
+token embedded in the served page as `X-Cod-Token`, which another site can't
+read or send.
 """
+import hmac
 import json
 import logging
 import os
 from pathlib import Path
+import secrets
 from typing import Any, AsyncIterator, Literal
 
 import anthropic
-from fastapi import Depends, FastAPI
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.agent.models import DEFAULT_MODEL, EFFORT_LEVELS, FALLBACK_BETA, MODELS, fallback_params, history_content
 from src.agent.prompt import project_files_block
+from src.agent.web import AgentService, AgentSettings, build_router
 
 logger = logging.getLogger("cod.web")
 
@@ -189,13 +200,49 @@ async def stream_chat_events(client: anthropic.AsyncAnthropic, params: dict[str,
         yield _sse("error", {"status": None, "message": NOT_SENT_MESSAGE})
 
 
+# A new token per process; the page gets it embedded and sends it back.
+API_TOKEN = secrets.token_urlsafe(32)
+TOKEN_PLACEHOLDER = "__COD_API_TOKEN__"
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
 app = FastAPI(title="cod.ai web chat", version="0.2.0")
+# None turns the Host check off (`cod serve --allow-remote`).
+app.state.allowed_hosts = set(LOOPBACK_HOSTS)
+app.state.agent_service = AgentService(AgentSettings(root=Path.cwd()))
+
+
+def request_hostname(request: Request) -> str:
+    host = request.headers.get("host", "")
+    if host.startswith("["):
+        return host[1:].split("]", 1)[0]
+    return host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+
+
+@app.middleware("http")
+async def guard_api(request: Request, call_next):
+    if request.url.path.startswith("/api/"):
+        allowed = request.app.state.allowed_hosts
+        if allowed is not None and request_hostname(request) not in allowed:
+            return JSONResponse({"detail": "this server only answers requests addressed to localhost"}, status_code=421)
+        if request.method == "POST":
+            token = request.headers.get("x-cod-token", "")
+            if not hmac.compare_digest(token, API_TOKEN):
+                return JSONResponse({"detail": "missing or invalid X-Cod-Token; reload the page"}, status_code=403)
+    return await call_next(request)
+
+
+def get_agent_service() -> AgentService:
+    return app.state.agent_service
+
+
+app.include_router(build_router(get_agent_service))
 
 
 @app.get("/", response_class=HTMLResponse)
 def serve_index() -> HTMLResponse:
     if WEB_INDEX_PATH.is_file():
-        return HTMLResponse(WEB_INDEX_PATH.read_text(encoding="utf-8"))
+        page = WEB_INDEX_PATH.read_text(encoding="utf-8").replace(TOKEN_PLACEHOLDER, API_TOKEN)
+        return HTMLResponse(page, headers={"Cache-Control": "no-store"})
     return HTMLResponse("<h1>cod.ai web GUI not found</h1>", status_code=404)
 
 
@@ -207,6 +254,7 @@ def get_config() -> dict[str, Any]:
         "effort_levels": list(EFFORT_LEVELS),
         "thinking_displays": list(THINKING_DISPLAYS),
         "project_context": SYSTEM_PROMPT != BASE_SYSTEM_PROMPT,
+        "agent_root": str(app.state.agent_service.settings.root),
     }
 
 
@@ -220,9 +268,18 @@ def chat(req: ChatRequest, client: anthropic.AsyncAnthropic = Depends(get_client
     )
 
 
-def run(host: str = "127.0.0.1", port: int = 8642) -> None:
+def run(
+    host: str = "127.0.0.1",
+    port: int = 8642,
+    root: str | Path | None = None,
+    sandbox: Literal["auto", "on", "off"] = "auto",
+    allow_remote: bool = False,
+) -> None:
     import uvicorn
 
+    app.state.agent_service = AgentService(AgentSettings(root=Path(root or Path.cwd()).resolve(), sandbox=sandbox))
+    if allow_remote:
+        app.state.allowed_hosts = None
     uvicorn.run(app, host=host, port=port)
 
 

@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="cod-token" content="__COD_API_TOKEN__" />
   <title>cod.ai chat</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -174,6 +175,29 @@
     }
     .notice.error { border-left: 3px solid var(--accent-fig); }
     .meta { font: 12px/1.4 var(--font-mono); color: var(--text-muted); margin-top: 4px; }
+
+    /* Agent tool calls */
+    .tool {
+      margin: 0 0 12px; border: 1px solid var(--border-hairline); border-radius: 12px;
+      background: var(--bg-surface-soft); font: 13px/1.5 var(--font-ui); overflow: hidden;
+    }
+    .tool .head { display: flex; gap: 8px; align-items: baseline; padding: 8px 12px; }
+    .tool .name { font-weight: 600; color: var(--text-ink); }
+    .tool .summary { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-body); overflow-wrap: anywhere; white-space: pre-wrap; }
+    .tool .state { margin-left: auto; color: var(--text-muted); font-size: 12px; white-space: nowrap; }
+    .tool.error .state { color: var(--accent-fig); }
+    .tool details { border-top: 1px solid var(--border-hairline); }
+    .tool details summary { padding: 6px 12px; color: var(--text-muted); cursor: pointer; font-size: 12px; }
+    .tool pre {
+      margin: 0; padding: 0 12px 10px; max-height: 320px; overflow: auto;
+      font: 12px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-body);
+    }
+    .tool .approve { border-top: 1px solid var(--border-hairline); padding: 10px 12px; background: var(--bg-surface-card); }
+    .tool .approve .question { margin-bottom: 8px; color: var(--text-ink); }
+    .tool .approve .diff { margin: 0 0 8px; font: 12px/1.5 var(--font-mono); white-space: pre-wrap; max-height: 240px; overflow: auto; }
+    .tool .approve .diff .del { color: var(--accent-fig); }
+    .tool .approve .diff .add { color: var(--accent-olive); }
+    .tool .approve .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
     .cursor::after { content: "▍"; color: var(--accent-primary); animation: blink 1s steps(2) infinite; }
     @keyframes blink { 50% { opacity: 0; } }
 
@@ -236,6 +260,11 @@
       <form id="composer">
         <textarea id="prompt" rows="2" placeholder="Message Claude… (Enter to send, Shift+Enter for a new line)" aria-label="Message"></textarea>
         <div class="row">
+          <select id="select-mode" aria-label="Mode">
+            <option value="chat">Chat</option>
+            <option value="agent">Agent</option>
+            <option value="agent-edits">Agent, accept edits</option>
+          </select>
           <select id="select-model" aria-label="Model"></select>
           <label>Effort <select id="select-effort" aria-label="Effort"></select></label>
           <label>Thinking <select id="select-thinking" aria-label="Thinking display">
@@ -266,6 +295,8 @@
     var conversations = loadConversations();
     var activeId = conversations.length ? conversations[0].id : null;
     var inflight = null; // { controller, turn }
+    var tokenMeta = document.querySelector('meta[name="cod-token"]');
+    var API_TOKEN = tokenMeta ? tokenMeta.content : "";
 
     var el = {
       list: document.getElementById("conversation-list"),
@@ -279,6 +310,7 @@
       model: document.getElementById("select-model"),
       effort: document.getElementById("select-effort"),
       thinking: document.getElementById("select-thinking"),
+      mode: document.getElementById("select-mode"),
       toast: document.getElementById("toast")
     };
 
@@ -314,6 +346,7 @@
         id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         title: firstText.replace(/\s+/g, " ").trim().slice(0, 60) || "New chat",
         createdAt: Date.now(),
+        mode: el.mode.value,
         turns: []
       };
       conversations.unshift(conv);
@@ -488,10 +521,17 @@
           appendMarkdown(div, b.text);
         } else if (b.type === "fallback") {
           notice(b.from + " declined; continuing on " + b.to + ".");
+        } else if (b.type === "compaction") {
+          notice("Earlier conversation summarized to free up context.");
+        } else if (b.type === "tool") {
+          div.appendChild(toolCard(t, b));
         }
       });
       if (t.status === "streaming" && !t.blocks.length) notice("Waiting for Claude…");
-      if (t.status === "stopped") notice("Stopped. This reply is left out of the conversation.");
+      if (t.status === "stopped") {
+        notice(t.agent ? "Stopped. Tool calls that finished are kept in the session." : "Stopped. This reply is left out of the conversation.");
+      }
+      if (t.agent && t.status === "done" && t.stopReason === "tool_rounds") notice("Stopped after the maximum number of tool rounds. Send a message to continue.");
       if (t.status === "refused") {
         notice("Claude declined this request" + (t.refusalCategory ? " (" + t.refusalCategory + ")" : "") +
           ". It is left out of the conversation, so you can rephrase and try again.", "error");
@@ -500,6 +540,70 @@
       if (t.status === "done" && t.stopReason === "max_tokens") notice("The reply hit the output token limit.");
       var meta = usageLine(t);
       if (meta) div.appendChild(h("div", "meta", meta));
+    }
+
+    var OUTCOME_LABELS = { denied: "denied", blocked: "blocked by settings", truncated: "not run (output cut off)" };
+
+    function toolCard(t, b) {
+      var card = h("div", "tool" + (b.isError ? " error" : ""));
+      var head = h("div", "head");
+      head.appendChild(h("span", "name", b.name));
+      head.appendChild(h("span", "summary", b.summary));
+      var state = b.output == null ? (b.approval && b.approval.state === "pending" ? "needs approval" : "running…")
+        : (OUTCOME_LABELS[b.outcome] || (b.isError ? "error" : "done"));
+      head.appendChild(h("span", "state", state));
+      card.appendChild(head);
+      if (b.output != null && b.output !== "") {
+        var details = h("details");
+        details.appendChild(h("summary", null, "Output"));
+        details.appendChild(h("pre", null, b.output));
+        card.appendChild(details);
+      }
+      if (b.approval && b.approval.state === "pending" && t.status === "streaming") {
+        card.appendChild(approvalBox(t, b));
+      }
+      return card;
+    }
+
+    function approvalBox(t, b) {
+      var box = h("div", "approve");
+      box.appendChild(h("div", "question", "Allow " + b.name + "?"));
+      var d = b.approval.details || {};
+      if (d.old != null || d.preview != null) {
+        var diff = h("pre", "diff");
+        if (d.old != null) {
+          d.old.split("\n").forEach(function (line) { diff.appendChild(h("div", "del", "- " + line)); });
+          d.new.split("\n").forEach(function (line) { diff.appendChild(h("div", "add", "+ " + line)); });
+        } else {
+          diff.appendChild(h("div", null, d.lines + " lines"));
+          diff.appendChild(h("div", "add", d.preview));
+        }
+        box.appendChild(diff);
+      }
+      var buttons = h("div", "buttons");
+      [["yes", "Allow", "btn-primary"], ["always", b.name === "bash" ? "Always allow this command" : "Always allow " + b.name, "btn"], ["no", "Deny", "btn"]]
+        .forEach(function (spec) {
+          var btn = h("button", spec[2], spec[1]);
+          btn.type = "button";
+          btn.addEventListener("click", function () { answerApproval(t, b, spec[0]); });
+          buttons.appendChild(btn);
+        });
+      box.appendChild(buttons);
+      return box;
+    }
+
+    function answerApproval(t, b, answer) {
+      var conv = activeConversation();
+      if (!conv || !conv.sessionId || !b.approval) return;
+      b.approval.state = answer;
+      rerenderTurn(t);
+      fetch("/api/agent/sessions/" + encodeURIComponent(conv.sessionId) + "/approvals/" + encodeURIComponent(b.approval.id), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Cod-Token": API_TOKEN },
+        body: JSON.stringify({ answer: answer })
+      }).then(function (r) {
+        if (!r.ok) { b.approval.state = "pending"; rerenderTurn(t); toast("Couldn't send the answer."); }
+      }, function () { b.approval.state = "pending"; rerenderTurn(t); toast("Couldn't reach the cod.ai server."); });
     }
 
     function renderTurn(t) {
@@ -566,7 +670,17 @@
       });
     }
 
-    function renderAll() { renderList(); renderMessages(); updateSendButton(); }
+    function renderAll() { renderList(); renderMessages(); updateSendButton(); syncModeSelector(); }
+
+    // A conversation keeps the mode (and, in agent mode, the model) it started with.
+    function syncModeSelector() {
+      var conv = activeConversation();
+      var started = !!(conv && conv.turns.length);
+      if (conv && conv.mode) el.mode.value = conv.mode;
+      el.mode.disabled = started;
+      el.model.disabled = started && conv.mode !== "chat" && !!conv.mode;
+      if (el.model.disabled && conv.model) el.model.value = conv.model;
+    }
 
     function scrollToBottom(force) {
       var s = el.scroll;
@@ -611,6 +725,7 @@
       fetch("/api/config").then(function (r) { return r.ok ? r.json() : null; }).then(function (cfg) {
         if (cfg) config = cfg;
         populateSelectors();
+        updateEmptyState();
       }).catch(function () {
         populateSelectors();
         document.getElementById("empty-sub").textContent =
@@ -657,8 +772,18 @@
       return pump();
     }
 
+    function errorMessage(resp) {
+      return resp.json().catch(function () { return {}; }).then(function (j) {
+        var detail = j && j.detail;
+        return Array.isArray(detail) ? detail.map(function (d) { return d.msg; }).join("; ") : (detail || resp.statusText);
+      });
+    }
+
     function send(text) {
-      var conv = activeConversation() || newConversation(text);
+      var existing = activeConversation();
+      var mode = existing ? existing.mode || "chat" : el.mode.value;
+      if (mode !== "chat") return sendAgent(text);
+      var conv = existing || newConversation(text);
       var userTurn = { key: "u" + Date.now(), role: "user", text: text, included: true };
       var reply = {
         key: "a" + Date.now(), role: "assistant", status: "streaming", blocks: [], byIndex: {},
@@ -705,14 +830,12 @@
 
       fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Cod-Token": API_TOKEN },
         body: JSON.stringify(body),
         signal: controller.signal
       }).then(function (resp) {
         if (!resp.ok) {
-          return resp.json().catch(function () { return {}; }).then(function (j) {
-            var detail = j && j.detail;
-            var msg = Array.isArray(detail) ? detail.map(function (d) { return d.msg; }).join("; ") : (detail || resp.statusText);
+          return errorMessage(resp).then(function (msg) {
             finish("error", { error: "The server rejected the request: " + msg });
           });
         }
@@ -754,6 +877,103 @@
       });
     }
 
+    // Agent mode: the server keeps the session; the page sends only the prompt
+    // and renders the turn's events, answering approval requests as they come.
+    function sendAgent(text) {
+      var conv = activeConversation() || newConversation(text);
+      conv.model = conv.model || el.model.value;
+      var userTurn = { key: "u" + Date.now(), role: "user", text: text, included: true };
+      var reply = { key: "a" + Date.now(), role: "assistant", agent: true, status: "streaming", blocks: [], included: true, model: conv.model };
+      conv.turns.push(userTurn, reply);
+      saveConversations();
+      renderAll();
+
+      var controller = new AbortController();
+      inflight = { controller: controller, reply: reply, user: userTurn };
+      updateSendButton();
+      var headers = { "Content-Type": "application/json", "X-Cod-Token": API_TOKEN };
+      var current = null; // the text or thinking block receiving deltas
+      var tools = {};
+
+      var pending = false;
+      function repaint() {
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(function () { pending = false; rerenderTurn(reply); scrollToBottom(false); });
+      }
+      var finished = false;
+      function finish(status, extra) {
+        if (finished) return;
+        finished = true;
+        reply.status = status;
+        Object.keys(extra || {}).forEach(function (k) { reply[k] = extra[k]; });
+        // The server drops a refused turn from the session, prompt included.
+        userTurn.included = status !== "refused";
+        inflight = null;
+        saveConversations();
+        renderAll();
+      }
+
+      var ready = conv.sessionId ? Promise.resolve() : fetch("/api/agent/sessions", {
+        method: "POST", headers: headers, signal: controller.signal,
+        body: JSON.stringify({
+          model: conv.model, effort: el.effort.value, thinking_display: el.thinking.value,
+          mode: conv.mode === "agent-edits" ? "accept-edits" : "default"
+        })
+      }).then(function (resp) {
+        if (!resp.ok) return errorMessage(resp).then(function (msg) { throw new Error("The server couldn't start a session: " + msg); });
+        return resp.json().then(function (j) { conv.sessionId = j.id; saveConversations(); });
+      });
+
+      ready.then(function () {
+        return fetch("/api/agent/sessions/" + encodeURIComponent(conv.sessionId) + "/turns", {
+          method: "POST", headers: headers, signal: controller.signal,
+          body: JSON.stringify({ prompt: text, effort: el.effort.value })
+        });
+      }).then(function (resp) {
+        if (!resp.ok) return errorMessage(resp).then(function (msg) { finish("error", { error: "The server rejected the request: " + msg }); });
+        return readEvents(resp, function (event, data) {
+          if (event === "block") {
+            current = { type: data.kind, text: "" };
+            reply.blocks.push(current);
+          } else if (event === "delta") {
+            if (!current || current.type !== data.kind) { current = { type: data.kind, text: "" }; reply.blocks.push(current); }
+            current.text += data.text;
+          } else if (event === "tool_call") {
+            current = null;
+            tools[data.id] = { type: "tool", id: data.id, name: data.name, summary: data.summary, output: null };
+            reply.blocks.push(tools[data.id]);
+          } else if (event === "approval") {
+            var waiting = reply.blocks.filter(function (b) { return b.type === "tool" && b.output == null; });
+            var target = waiting[waiting.length - 1];
+            if (target) target.approval = { id: data.id, state: "pending", details: data.details };
+          } else if (event === "tool_output") {
+            var tool = tools[data.id];
+            if (tool) { tool.output = data.content; tool.isError = data.is_error; tool.outcome = data.outcome; }
+          } else if (event === "fallback") {
+            reply.blocks.push({ type: "fallback", from: data.from, to: data.to });
+          } else if (event === "compaction") {
+            reply.blocks.push({ type: "compaction" });
+          } else if (event === "done") {
+            var refused = data.stop_reason === "refusal";
+            finish(refused ? "refused" : "done", {
+              model: data.model, stopReason: data.stop_reason, refusalCategory: data.refusal_category, usage: data.usage
+            });
+            return;
+          } else if (event === "error") {
+            finish("error", { error: (data.status ? "API error " + data.status + ": " : "") + data.message });
+            return;
+          }
+          repaint();
+        }).then(function () {
+          finish("error", { error: "The connection closed before the turn finished." });
+        });
+      }).catch(function (err) {
+        if (err && err.name === "AbortError") finish("stopped");
+        else finish("error", { error: err && err.message ? err.message : "Couldn't reach the cod.ai server." });
+      });
+    }
+
     // ---------- events ----------
 
     el.form.addEventListener("submit", function (e) {
@@ -780,6 +1000,18 @@
     el.prompt.addEventListener("input", function () { autosize(); updateSendButton(); });
 
     el.model.addEventListener("change", applyDefaultEffort);
+    el.mode.addEventListener("change", updateEmptyState);
+
+    function updateEmptyState() {
+      var sub = document.getElementById("empty-sub");
+      if (el.mode.value === "chat") {
+        sub.textContent = "Replies stream from the Claude API through the local cod.ai server.";
+      } else {
+        sub.textContent = "Agent mode works in " + (config.agent_root || "the server's project folder") +
+          ". It reads freely and asks before editing files or running commands" +
+          (el.mode.value === "agent-edits" ? ", except edits, which it applies." : ".");
+      }
+    }
 
     document.getElementById("btn-new").addEventListener("click", function () {
       if (inflight) return toast("Wait for the current reply or stop it first.");

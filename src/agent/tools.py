@@ -152,20 +152,35 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     },
 ]
 
-TOOL_NAMES = tuple(t["name"] for t in TOOL_DEFINITIONS) + ("memory",)
+# Run by the engine rather than the toolbox: it starts a read-only sub-agent.
+EXPLORE_TOOL: dict[str, Any] = {
+    "name": "explore",
+    "description": (
+        "Hand a read-only investigation of the codebase to a sub-agent with its own context. It can read "
+        "files, glob and grep, but not edit files or run commands, and it returns a written report with "
+        "file:line references. Use it for broad searches across many files, so their contents don't fill "
+        "this conversation. Say exactly what to find out and what the report should contain."
+    ),
+    "input_schema": _schema({
+        "task": {"type": "string", "description": "What to investigate and what to report back."},
+    }, ["task"]),
+}
+
+TOOL_NAMES = tuple(t["name"] for t in TOOL_DEFINITIONS) + ("explore", "memory")
 READ_ONLY_TOOLS = frozenset({"read_file", "glob", "grep"})
 PROTECTED_DIR = ".cod"
 
 SandboxMode = Literal["auto", "on", "off"]
 
 
-def api_tool_definitions(eager_input_streaming: bool = True, memory: bool = True) -> list[dict[str, Any]]:
+def api_tool_definitions(eager_input_streaming: bool = True, memory: bool = True, explore: bool = False) -> list[dict[str, Any]]:
     """
     Tool definitions for a streaming request; eager streaming sends large inputs
     as they are generated. The memory tool's schema is defined by the API, so it
     is sent by type only.
     """
-    tools = [{**t, "eager_input_streaming": True} if eager_input_streaming else dict(t) for t in TOOL_DEFINITIONS]
+    client_tools = TOOL_DEFINITIONS + ([EXPLORE_TOOL] if explore else [])
+    tools = [{**t, "eager_input_streaming": True} if eager_input_streaming else dict(t) for t in client_tools]
     if memory:
         tools.append(dict(MEMORY_TOOL))
     return tools
@@ -238,6 +253,8 @@ class Toolbox:
             return str(tool_input.get("pattern", ""))
         if name == "memory":
             return describe_memory(tool_input)
+        if name == "explore":
+            return str(tool_input.get("task", ""))
         return str(tool_input.get("path", ""))
 
     # ---------- dispatch ----------

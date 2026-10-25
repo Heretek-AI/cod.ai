@@ -19,7 +19,23 @@ The request uses the same settings as the web chat (table below) plus `tools` (e
 | `pause_turn` | The history is sent back unchanged to resume. |
 | `refusal` | The turn's messages, starting with the user's prompt, are rolled back so the user can rephrase. |
 
+`explore` is handled by the engine itself. It starts a second `Agent` on an in-memory session with its own system prompt, the read-only tools only, and a policy that denies everything else. Its last text message becomes the tool result. The parent's history holds only that report.
+
 If the user interrupts while tools are running, the calls that finished keep their results and the rest get an "interrupted" error result, so the history stays valid.
+
+## Web agent mode
+
+`src/agent/web.py` puts the same engine behind HTTP. The server owns the session; the page sends only prompts.
+
+| Route | Purpose |
+| :--- | :--- |
+| `POST /api/agent/sessions` | Start a session: `{model, effort, thinking_display, mode: "default" \| "accept-edits"}` |
+| `POST /api/agent/sessions/{id}/turns` | Run a turn: `{prompt, effort}`, answered with an event stream (`start`, `block`, `delta`, `tool_call`, `approval`, `tool_output`, `fallback`, `compaction`, `done`, `error`) |
+| `POST /api/agent/sessions/{id}/approvals/{approval_id}` | Answer an `approval` event: `{answer: "yes" \| "no" \| "always"}` |
+
+While a turn waits for approval, the engine awaits a future that the approval route resolves. Closing the event stream cancels the turn, and the engine records the unfinished tool calls as interrupted. Sessions survive a server restart: an unknown id is loaded from `.cod/sessions/`.
+
+All `/api/` requests must have a loopback `Host` header, and all POSTs must carry the per-process `X-Cod-Token` that the server writes into the page.
 
 ## Web chat
 

@@ -27,7 +27,7 @@ def parse_sse(body):
 
 class WebServerTests(unittest.TestCase):
     def setUp(self):
-        self.http = TestClient(web_server.app)
+        self.http = TestClient(web_server.app, base_url="http://127.0.0.1:8642", headers={"X-Cod-Token": web_server.API_TOKEN})
 
     def tearDown(self):
         web_server.app.dependency_overrides.clear()
@@ -166,6 +166,26 @@ class WebServerTests(unittest.TestCase):
         for body in bad_bodies:
             with self.subTest(body=body):
                 self.assertEqual(self.chat(**body).status_code, 422)
+
+    def test_page_carries_the_api_token(self):
+        page = self.http.get("/").text
+        self.assertIn(web_server.API_TOKEN, page)
+        self.assertNotIn(web_server.TOKEN_PLACEHOLDER, page)
+
+    def test_posts_need_the_token_and_a_loopback_host(self):
+        fake = self.use(FakeClient(make_message([{"type": "text", "text": "unused"}])))
+        body = {"messages": [{"role": "user", "content": "Hi"}]}
+        no_token = TestClient(web_server.app, base_url="http://127.0.0.1:8642")
+        self.assertEqual(no_token.post("/api/chat", json=body).status_code, 403)
+        self.assertEqual(no_token.post("/api/chat", json=body, headers={"X-Cod-Token": "guess"}).status_code, 403)
+        # A rebound DNS name pointing at 127.0.0.1 still sends its own Host header.
+        rebound = TestClient(web_server.app, base_url="http://attacker.example:8642", headers={"X-Cod-Token": web_server.API_TOKEN})
+        self.assertEqual(rebound.post("/api/chat", json=body).status_code, 421)
+        self.assertEqual(rebound.get("/api/config").status_code, 421)
+        self.assertEqual(fake.calls, [])
+        for host in ("localhost", "[::1]"):
+            client = TestClient(web_server.app, base_url=f"http://{host}:8642", headers={"X-Cod-Token": web_server.API_TOKEN})
+            self.assertEqual(client.get("/api/config").status_code, 200)
 
     def test_system_prompt_includes_project_files(self):
         self.assertTrue(web_server.SYSTEM_PROMPT.startswith(web_server.BASE_SYSTEM_PROMPT))

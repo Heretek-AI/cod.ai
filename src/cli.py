@@ -32,14 +32,21 @@ def serve_main(argv: list[str]) -> int:
     parser.add_argument(
         "--allow-remote",
         action="store_true",
-        help="Allow binding a non-loopback address. The chat API has no authentication, so anyone who can reach it uses your credentials.",
+        help=(
+            "Allow binding a non-loopback address. The API is guarded only by a token embedded in the page, "
+            "so anyone who can load the page can use your credentials and, in agent mode, your files."
+        ),
     )
+    parser.add_argument("--root", default=".", help="Project the agent mode works in (default: the current directory).")
+    parser.add_argument("--sandbox", choices=["auto", "on", "off"], default="auto", help="Shell sandbox for agent mode (default: auto).")
     args = parser.parse_args(argv)
     if not args.allow_remote and not is_loopback_host(args.host):
         parser.error(f"--host {args.host} is not a loopback address; the chat API has no authentication. Pass --allow-remote to bind it anyway.")
+    if not Path(args.root).is_dir():
+        parser.error(f"--root {args.root} is not a directory")
     from src.web_server import run
 
-    run(host=args.host, port=args.port)
+    run(host=args.host, port=args.port, root=args.root, sandbox=args.sandbox, allow_remote=args.allow_remote)
     return 0
 
 
@@ -62,6 +69,7 @@ def agent_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-project-files", action="store_true", help="Leave CLAUDE.md and AGENTS.md out of a new session's system prompt.")
     parser.add_argument("--no-fallbacks", action="store_true", help="Turn off the server-side refusal fallback.")
     parser.add_argument("--no-memory", action="store_true", help="Start a session without the memory tool (.cod/memory/).")
+    parser.add_argument("--no-explore", action="store_true", help="Start a session without the read-only explore sub-agent.")
     parser.add_argument(
         "--sandbox", choices=["auto", "on", "off"], default="auto",
         help="Run shell commands under bubblewrap: auto uses it when installed, on requires it (default: auto).",
@@ -104,7 +112,10 @@ def agent_main(argv: list[str], client=None, stdin=None, stdout=None, stderr=Non
             session = Session.find(root, args.resume)
         else:
             system_prompt = build_agent_prompt(root, include_project_files=not args.no_project_files)
-            session = Session.create(root, args.model or DEFAULT_MODEL, system_prompt, memory_tool=not args.no_memory)
+            session = Session.create(
+                root, args.model or DEFAULT_MODEL, system_prompt,
+                memory_tool=not args.no_memory, explore_tool=not args.no_explore,
+            )
         mode = "allow-all" if args.allow_all else "accept-edits" if args.accept_edits else "default"
         policy = PermissionPolicy.from_settings(root, mode)
         toolbox = Toolbox(root, sandbox=args.sandbox, memory=session.memory_tool)

@@ -24,7 +24,7 @@ class SessionError(RuntimeError):
 
 @dataclass
 class Session:
-    path: Path
+    path: Path | None
     id: str
     model: str
     system_prompt: str
@@ -33,17 +33,23 @@ class Session:
     # Whether the session's tool list includes the memory tool. Fixed at creation
     # so the tool list, like the system prompt, is the same on every request.
     memory_tool: bool = True
+    explore_tool: bool = False
 
     @classmethod
-    def create(cls, root: str | Path, model: str, system_prompt: str, memory_tool: bool = True) -> "Session":
+    def create(
+        cls, root: str | Path, model: str, system_prompt: str, memory_tool: bool = True, explore_tool: bool = True
+    ) -> "Session":
         directory = Path(root) / SESSIONS_DIR
         directory.mkdir(parents=True, exist_ok=True)
         created = datetime.now(timezone.utc)
         session_id = created.strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(3)
-        session = cls(directory / f"{session_id}.jsonl", session_id, model, system_prompt, created.isoformat(), memory_tool=memory_tool)
+        session = cls(
+            directory / f"{session_id}.jsonl", session_id, model, system_prompt, created.isoformat(),
+            memory_tool=memory_tool, explore_tool=explore_tool,
+        )
         header = {
             "type": "session", "id": session_id, "model": model, "system_prompt": system_prompt,
-            "created_at": session.created_at, "memory_tool": memory_tool,
+            "created_at": session.created_at, "memory_tool": memory_tool, "explore_tool": explore_tool,
         }
         session.path.write_text(json.dumps(header, ensure_ascii=False) + "\n", encoding="utf-8")
         return session
@@ -75,6 +81,7 @@ class Session:
         return cls(
             path, header["id"], header["model"], header["system_prompt"], header["created_at"], messages,
             memory_tool=bool(header.get("memory_tool", False)),
+            explore_tool=bool(header.get("explore_tool", False)),
         )
 
     @classmethod
@@ -88,8 +95,15 @@ class Session:
             raise SessionError(f"no sessions in {directory}")
         return cls.load(candidates[-1])
 
+    @classmethod
+    def ephemeral(cls, model: str, system_prompt: str) -> "Session":
+        """A session kept in memory only, for sub-agents."""
+        return cls(None, "ephemeral", model, system_prompt, datetime.now(timezone.utc).isoformat(), memory_tool=False)
+
     def append(self, message: dict[str, Any]) -> None:
         self.messages.append(message)
+        if self.path is None:
+            return
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps({"type": "message", "message": message}, ensure_ascii=False) + "\n")
 
@@ -100,5 +114,7 @@ class Session:
         if count > len(self.messages):
             raise SessionError(f"cannot roll back {count} messages; the session has {len(self.messages)}")
         del self.messages[len(self.messages) - count:]
+        if self.path is None:
+            return
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps({"type": "rollback", "count": count}) + "\n")

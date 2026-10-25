@@ -2,7 +2,7 @@
 
 A coding agent for the terminal, plus a local web chat, built on the Claude Messages API with the Anthropic Python SDK.
 
-`cod` gives Claude tools in your project (read, write and edit files, glob, grep, a shell, and a memory folder), asks before it edits or runs anything, and saves every session so you can pick it up later. Long sessions are compacted by the API, so they can keep going past the context window.
+`cod` gives Claude tools in your project (read, write and edit files, glob, grep, a shell, a memory folder, and a read-only explore sub-agent), asks before it edits or runs anything, and saves every session so you can pick it up later. Long sessions are compacted by the API, so they can keep going past the context window.
 
 ## Install
 
@@ -40,6 +40,7 @@ cod --resume 20261025-164712-76741b
 | `--compact-at TOKENS` | Input size at which the API summarizes earlier context (default 150,000) |
 | `--no-compact` | Turn off server-side compaction |
 | `--no-memory` | Start a session without the memory tool |
+| `--no-explore` | Start a session without the explore sub-agent |
 
 In the interactive session, `/help`, `/session`, `/usage` and `/exit` are available, and Ctrl-C stops the current turn. Token usage is printed after each turn.
 
@@ -66,18 +67,27 @@ When [bubblewrap](https://github.com/containers/bubblewrap) is installed (`apt i
 
 Claude can keep notes for a project in `.cod/memory/` with the memory tool, and checks them at the start of a task. Memory writes don't ask for approval because they can't leave that folder; a rule such as `"deny": ["memory(delete *)"]` restricts them.
 
+### Explore sub-agent
+
+For broad searches, Claude can hand a question to `explore`: a sub-agent with its own context that can only read, glob and grep. It returns a short report with file:line references, so the files it read don't fill the main conversation. Its token usage is counted in the turn's total.
+
 ### Sessions
 
 Each session is an append-only JSONL file in `.cod/sessions/` holding the model, the system prompt and every message as sent. A refused turn is dropped from the history so you can rephrase. Add `.cod/sessions/` to your project's `.gitignore`.
 
-## Web chat
+## Web GUI
 
 ```bash
-cod serve                    # http://127.0.0.1:8642
-cod serve --port 9000
+cod serve                    # http://127.0.0.1:8642, agent mode works in the current directory
+cod serve --root ~/src/app --port 9000
 ```
 
-A plain chat with streaming, thinking summaries, model and effort selectors and per-reply token usage. It has no tools. The API key stays on the server and the page has no authentication, so `cod serve` binds only loopback addresses unless you pass `--allow-remote`. `COD_PROJECT_CONTEXT=0` leaves this repository's `CLAUDE.md` and `AGENTS.md` out of its system prompt, and `COD_FALLBACKS=0` turns off the refusal fallback. See [DESIGN.md](DESIGN.md) for how requests are built.
+The mode selector picks one of two modes for a new conversation:
+
+- **Chat**: a plain chat with streaming, thinking summaries, model and effort selectors and per-reply token usage. It has no tools, and the history lives in the browser.
+- **Agent**: the terminal agent on `--root`, with the same tools, permission rules and sessions (`.cod/sessions/`). Tool calls appear as cards, and calls that need approval show Allow, Always allow and Deny buttons. "Agent, accept edits" applies file edits without asking. Stopping a turn stops the agent.
+
+The API key stays on the server. Every API request must be addressed to a loopback host, which blocks DNS rebinding, and every POST must carry a token that is embedded in the page and changes each time the server starts. `cod serve` binds only loopback addresses unless you pass `--allow-remote`, which turns the host check off: then anyone who can load the page can spend your credits and, in agent mode, work in your files. `COD_PROJECT_CONTEXT=0` leaves this repository's `CLAUDE.md` and `AGENTS.md` out of its system prompt, and `COD_FALLBACKS=0` turns off the refusal fallback. See [DESIGN.md](DESIGN.md) for how requests are built.
 
 ## Development
 
@@ -90,8 +100,9 @@ The tests use a fake Anthropic client and never call the API.
 ```text
 src/
 ├── cli.py            # `cod` and `cod serve`
-├── web_server.py     # FastAPI server for the web chat
+├── web_server.py     # FastAPI server for the web GUI
 ├── agent/
+│   ├── web.py        # agent mode over HTTP, with approvals from the browser
 │   ├── engine.py     # the tool-use loop
 │   ├── tools.py      # file, search and shell tools, bubblewrap sandbox
 │   ├── memory_tool.py  # the memory tool, stored in .cod/memory/

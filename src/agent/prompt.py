@@ -22,6 +22,16 @@ Shell commands run without secrets in their environment and without a terminal, 
 Answer in GitHub-flavored Markdown. When you finish, say briefly what you changed and anything left undone."""
 
 
+EXPLORE_PROMPT = """You are a read-only code explorer working for another agent, which gave you the task in the user message. You can read files, glob and grep in the project; you cannot edit files or run commands.
+
+Search efficiently: start broad with glob and grep, then read only the parts that matter. When you are done, reply with a report the other agent can act on without re-reading everything: what you found, with file:line references, and anything you couldn't determine. Keep it concise. Your final message is the only thing the other agent sees."""
+
+
+def build_explore_prompt(root: str | Path) -> str:
+    root = Path(root).resolve()
+    return f"{EXPLORE_PROMPT}\n\n<environment>\nProject root: {root}\n</environment>"
+
+
 def project_files_block(root: str | Path, names: tuple[str, ...] = PROJECT_FILES) -> list[str]:
     """Each project instruction file in `root`, wrapped in a `project_file` tag."""
     blocks = []
