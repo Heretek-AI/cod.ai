@@ -1,79 +1,119 @@
-# `cod.ai` — Next-Generation Agentic Coding Harness & Orchestration Platform
+# cod.ai
 
-[![Verdict: PASS](https://img.shields.io/badge/Adversarial_Verifier-VERDICT:_PASS-brightgreen)](docs/03_verification_and_architecture_report.md)
-[![Pi-Configs Compatible](https://img.shields.io/badge/Pi_Ecosystem-@heretek--ai/pi--configs_v1.3.0-blue)](docs/02_pi_configs_tracking_issue.md)
+A coding agent for the terminal, plus a local web chat, built on the Claude Messages API with the Anthropic Python SDK.
 
-`cod.ai` ([Heretek-AI/cod.ai](https://github.com/Heretek-AI/cod.ai)) unifies the **holistic, zero-noise $n^2$ architectural synthesis** of `claude.ai` Web (`<antArtifact>` + Skills Playbooks + $>100$-line iterative drafting) with the **surgical Just-In-Time (JIT) execution, byte-identical 3-layer prefix caching, Pi JSONL session DAGs, and adversarial sub-agent verification** of Claude Code and [Pi (`earendil-works/pi`)](https://github.com/earendil-works/pi).
+`cod` gives Claude tools in your project (read, write and edit files, glob, grep, a shell, a memory folder, and a read-only explore sub-agent), asks before it edits or runs anything, and saves every session so you can pick it up later. Long sessions are compacted by the API, so they can keep going past the context window.
 
----
+## Install
 
-## Repository Structure
-
-```text
-cod.ai/
-├── README.md                                  # Quickstart, architecture overview & CLI guide
-├── CLAUDE.md                                  # Layer 2 static project context & invariant contract
-├── AGENTS.md                                  # Multi-agent specialist charter & Pi interoperability spec
-├── pyproject.toml                             # Python 3.11+ package & CLI entrypoint (`cod`)
-├── .gitignore                                 # Standard Python/Node/worktree ignores
-├── docs/
-│   ├── 00_osint_recon.md                      # Phase 0: Live OSINT & Proxmox VM Reconnaissance
-│   ├── 01_harness_decision_matrix.md          # Phase 1: Six-Invariant Harness Evaluation Matrix (ADR-001)
-│   ├── 02_pi_configs_tracking_issue.md        # Phase 1.5: Tracking issue & PR spec for Heretek-AI/pi-configs
-│   └── 03_verification_and_architecture_report.md # Phases 2-5 Adversarial Verification & Telemetry Report
-├── skills/
-│   ├── system_architecture/SKILL.md           # Mode A Distributed Systems & Module Decomposition Playbook
-│   ├── frontend_ux/SKILL.md                   # Mode A High-Craft UI/UX & WCAG 2.2 AA Playbook
-│   ├── systems_security/SKILL.md              # Proxmox Containment, Proxy Vault & Classifier Playbook
-│   └── pi_specialist_bridge/SKILL.md          # Cache-Safe @heretek-ai/pi-configs Charter Loader Playbook
-├── src/
-│   ├── __init__.py
-│   ├── cli.py                                 # Unified `cod` Headless CLI (`cod doctor`, `cod auto-mode critique`, `cod simple`)
-│   ├── prompts/                               # Phase 2: Dual-Polarity Prompt Engine
-│   │   ├── architect_mode.py                  # Mode A: GOAL XML framing + >100-line 4-stage iterative loop + anti-truncation
-│   │   ├── implementer_mode.py                # Mode B: Read/Edit/Write/Glob/Grep enforcement + Bash file-op blocker
-│   │   ├── simple_mode.py                     # COD_SIMPLE=true 4-line minimal benchmark prompt
-│   │   └── engine.py                          # Unified PromptAssemblyEngine + @heretek-ai/pi-configs loader
-│   ├── context/                               # Phase 3: Token Economics, Prefix Cache & Hybrid Retrieval
-│   │   ├── cache_assembler.py                 # 3-Layer Cache-Control Assembler + ToolSearch (`defer_loading: true`)
-│   │   ├── ttl_scheduler.py                   # 5-Minute TTL Keep-Alive & Batching Scheduler (from request start)
-│   │   └── router_and_retrieval.py            # Model-Affinity Router + 60-80% Attention Budget Governor
-│   ├── agents/                                # Phase 4: Multi-Agent Fleet, Compaction & Adversarial Verifier
-│   │   ├── session_dag.py                     # Pi-compatible `session.jsonl` Tree DAG + `Cache Re-billed` meter
-│   │   ├── coordinator.py                     # `/goal` Git Worktree Coordinator (`git worktree add -b`)
-│   │   ├── explore_agent.py                   # Read-Only `Explore` Sub-Agent (>3 Glob/Grep -> 1-2K token brief)
-│   │   ├── compaction.py                      # Two-Tier Compaction (Stage 1 Cache-Safe Micro + Stage 2 9-Section Compact)
-│   │   ├── memory.py                          # Atomic `memory_str_replace` (`if_version` guard) + `NOTES.md` / `TodoWrite`
-│   │   └── verifier.py                        # Adversarial Verification Agent (`07_verification_agent.md` + Lead Spot-Check)
-│   └── security/                              # Phase 5: Proxmox VM Containment & Security Classifier
-│       ├── proxy_sandbox.py                   # 127.0.0.1 Credential Vault Proxy + `bwrap` / rootless sandbox runner
-│       ├── classifier.py                      # 2-Stage Auto-Mode Security Classifier + `cod auto-mode critique`
-│       └── telemetry.py                       # `/skill doctor` & Live Context Quality Telemetry Dashboard
-├── pi_configs_upstream/                       # Drop-in upgrade for https://github.com/Heretek-AI/pi-configs (v1.3.0)
-│   ├── create_tracking_issue.sh               # One-click script to open the tracking issue on Heretek-AI/pi-configs
-│   ├── src/cod_ai_invariant_bridge.ts         # TypeScript extension fixing `/specialist` Layer-3 cache preservation
-│   └── agents/                                # Custom specialists (#72 holistic-web-architect, #73 attention-budget-governor, #74 adversarial-verifier)
-└── tests/
-    └── test_cod_ai_full_suite.py              # 16 end-to-end unit & integration tests across Phases 2-5
-```
-
----
-
-## Quickstart & Verification
+Requires Python 3.11 or newer.
 
 ```bash
-# 1. Run the complete 16-test automated verification suite
-PYTHONPATH=. python3 tests/test_cod_ai_full_suite.py
+git clone https://github.com/heretek-ai/cod.ai && cd cod.ai
+pip install -e .
+```
 
-# 2. Run `/skill doctor` & live telemetry dashboard
-PYTHONPATH=. python3 src/cli.py doctor
+Credentials are resolved by the SDK: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or an `ant auth login` profile. Set `ANTHROPIC_BASE_URL` to send requests through a gateway or a local credential proxy instead.
 
-# 3. Audit permission rules with `cod auto-mode critique`
-PYTHONPATH=. python3 src/cli.py auto-mode critique
+## Terminal agent
 
-# 4. Emit the 4-line `COD_SIMPLE=true` minimal benchmark prompt
-PYTHONPATH=. python3 src/cli.py simple
+```bash
+cd your-project
+cod                          # interactive session
+cod -p "why does test_login fail?"   # one prompt, answer on stdout
+git diff | cod -p -          # prompt from stdin
+cod --continue               # resume the latest session in this project
+cod --resume 20261025-164712-76741b
+```
 
-# 5. Open the upstream tracking issue on Heretek-AI/pi-configs
-GITHUB_TOKEN=ghp_your_token ./pi_configs_upstream/create_tracking_issue.sh
+| Option | Effect |
+| :--- | :--- |
+| `--model` | `claude-opus-5-5` (default), `claude-fable-5-1`, `claude-sonnet-5-5` or `claude-haiku-5-5` |
+| `--effort` | `low` to `max`; defaults to the model's own default |
+| `--accept-edits` | Apply file edits without asking (shell commands still ask) |
+| `--allow-all` | Run every tool call without asking |
+| `--root` | Project directory the tools work in (default: current directory) |
+| `--hide-thinking` | Don't request or print thinking summaries |
+| `--no-project-files` | Leave `CLAUDE.md` and `AGENTS.md` out of a new session's prompt |
+| `--no-fallbacks` | Turn off the server-side refusal fallback |
+| `--sandbox auto\|on\|off` | Run shell commands under bubblewrap; `auto` (default) uses it when `bwrap` is installed |
+| `--compact-at TOKENS` | Input size at which the API summarizes earlier context (default 150,000) |
+| `--no-compact` | Turn off server-side compaction |
+| `--no-memory` | Start a session without the memory tool |
+| `--no-explore` | Start a session without the explore sub-agent |
+
+In the interactive session, `/help`, `/session`, `/usage` and `/exit` are available, and Ctrl-C stops the current turn. Token usage is printed after each turn.
+
+### Permissions
+
+Reads and searches run freely. Edits and shell commands ask first; answer `y`, `n`, or `a` to allow that tool (edits) or that exact command (shell) for the rest of the session. With no terminal to ask on, as in `cod -p` in a pipeline, anything that would ask is denied.
+
+Standing rules go in `.cod/settings.json` in the project. A rule is a tool name, optionally with a glob matched against the command (for `bash`) or path (for the file tools). `deny` always wins, even over `--allow-all`:
+
+```json
+{
+  "permissions": {
+    "allow": ["bash(git status*)", "bash(pytest*)"],
+    "deny": ["bash(rm -rf*)", "read_file(.env*)"]
+  }
+}
+```
+
+All paths are confined to the project root, and the file tools can't write into `.cod/`. Shell commands run with stdin closed and with environment variables whose names look like secrets (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`, `*CREDENTIAL*`, `*AUTH*`) removed.
+
+When [bubblewrap](https://github.com/containers/bubblewrap) is installed (`apt install bubblewrap`), shell commands also run in a sandbox: everything outside the project and a private `/tmp` is read-only, your home directory is hidden apart from `~/.gitconfig`, and `.cod/` is read-only. The network stays on. Without bubblewrap the shell runs as you, so treat `--allow-all` as giving Claude your shell; `--sandbox on` refuses to start instead.
+
+### Memory
+
+Claude can keep notes for a project in `.cod/memory/` with the memory tool, and checks them at the start of a task. Memory writes don't ask for approval because they can't leave that folder; a rule such as `"deny": ["memory(delete *)"]` restricts them.
+
+### Explore sub-agent
+
+For broad searches, Claude can hand a question to `explore`: a sub-agent with its own context that can only read, glob and grep. It returns a short report with file:line references, so the files it read don't fill the main conversation. Its token usage is counted in the turn's total.
+
+### Sessions
+
+Each session is an append-only JSONL file in `.cod/sessions/` holding the model, the system prompt and every message as sent. A refused turn is dropped from the history so you can rephrase. Add `.cod/sessions/` to your project's `.gitignore`.
+
+## Web GUI
+
+```bash
+cod serve                    # http://127.0.0.1:8642, agent mode works in the current directory
+cod serve --root ~/src/app --port 9000
+```
+
+The mode selector picks one of two modes for a new conversation:
+
+- **Chat**: a plain chat with streaming, thinking summaries, model and effort selectors and per-reply token usage. It has no tools, and the history lives in the browser.
+- **Agent**: the terminal agent on `--root`, with the same tools, permission rules and sessions (`.cod/sessions/`). Tool calls appear as cards, and calls that need approval show Allow, Always allow and Deny buttons. "Agent, accept edits" applies file edits without asking. Stopping a turn stops the agent.
+
+The API key stays on the server. Every API request must be addressed to a loopback host, which blocks DNS rebinding, and every POST must carry a token that is embedded in the page and changes each time the server starts. `cod serve` binds only loopback addresses unless you pass `--allow-remote`, which turns the host check off: then anyone who can load the page can spend your credits and, in agent mode, work in your files. `COD_PROJECT_CONTEXT=0` leaves this repository's `CLAUDE.md` and `AGENTS.md` out of its system prompt, and `COD_FALLBACKS=0` turns off the refusal fallback. See [DESIGN.md](DESIGN.md) for how requests are built.
+
+## Development
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+The tests use a fake Anthropic client and never call the API.
+
+```text
+src/
+├── cli.py            # `cod` and `cod serve`
+├── web_server.py     # FastAPI server for the web GUI
+├── agent/
+│   ├── web.py        # agent mode over HTTP, with approvals from the browser
+│   ├── engine.py     # the tool-use loop
+│   ├── tools.py      # file, search and shell tools, bubblewrap sandbox
+│   ├── memory_tool.py  # the memory tool, stored in .cod/memory/
+│   ├── permissions.py
+│   ├── session.py    # JSONL session files
+│   ├── prompt.py     # system prompt
+│   ├── models.py     # model table and history rules shared with the web chat
+│   └── terminal.py   # REPL and print mode
+└── agents/
+    ├── memory.py     # versioned file memory store
+    └── coordinator.py  # runs workers in separate git worktrees
+web/index.html        # the web chat page
+tests/
 ```

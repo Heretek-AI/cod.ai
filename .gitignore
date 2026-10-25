@@ -8,3 +8,4 @@ build/
 *.egg-info/
 .worktrees/
 .pytest_cache/
+.cod/sessions/
