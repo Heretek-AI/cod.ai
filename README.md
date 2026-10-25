@@ -1,107 +1,97 @@
-# `cod.ai` — Next-Generation Agentic Coding Harness & Orchestration Platform
+# cod.ai
 
-[![Verdict: PASS](https://img.shields.io/badge/Adversarial_Verifier-VERDICT:_PASS-brightgreen)](docs/03_verification_and_architecture_report.md)
-[![Pi-Configs Compatible](https://img.shields.io/badge/Pi_Ecosystem-@heretek--ai/pi--configs_v1.3.0-blue)](docs/02_pi_configs_tracking_issue.md)
+A coding agent for the terminal, plus a local web chat, built on the Claude Messages API with the Anthropic Python SDK.
 
-`cod.ai` ([Heretek-AI/cod.ai](https://github.com/Heretek-AI/cod.ai)) unifies the **holistic, zero-noise $n^2$ architectural synthesis** of `claude.ai` Web (`<antArtifact>` + Skills Playbooks + $>100$-line iterative drafting) with the **surgical Just-In-Time (JIT) execution, byte-identical 3-layer prefix caching, Pi JSONL session DAGs, and adversarial sub-agent verification** of Claude Code and [Pi (`earendil-works/pi`)](https://github.com/earendil-works/pi).
+`cod` gives Claude six tools in your project (read, write and edit files, glob, grep, and a shell), asks before it edits or runs anything, and saves every session so you can pick it up later.
 
----
+## Install
 
-## Repository Structure
+Requires Python 3.11 or newer.
+
+```bash
+git clone https://github.com/heretek-ai/cod.ai && cd cod.ai
+pip install -e .
+```
+
+Credentials are resolved by the SDK: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or an `ant auth login` profile. Set `ANTHROPIC_BASE_URL` to send requests through a gateway or a local credential proxy instead.
+
+## Terminal agent
+
+```bash
+cd your-project
+cod                          # interactive session
+cod -p "why does test_login fail?"   # one prompt, answer on stdout
+git diff | cod -p -          # prompt from stdin
+cod --continue               # resume the latest session in this project
+cod --resume 20261025-164712-76741b
+```
+
+| Option | Effect |
+| :--- | :--- |
+| `--model` | `claude-opus-5-5` (default), `claude-fable-5-1`, `claude-sonnet-5-5` or `claude-haiku-5-5` |
+| `--effort` | `low` to `max`; defaults to the model's own default |
+| `--accept-edits` | Apply file edits without asking (shell commands still ask) |
+| `--allow-all` | Run every tool call without asking |
+| `--root` | Project directory the tools work in (default: current directory) |
+| `--hide-thinking` | Don't request or print thinking summaries |
+| `--no-project-files` | Leave `CLAUDE.md` and `AGENTS.md` out of a new session's prompt |
+| `--no-fallbacks` | Turn off the server-side refusal fallback |
+
+In the interactive session, `/help`, `/session`, `/usage` and `/exit` are available, and Ctrl-C stops the current turn.
+
+### Permissions
+
+Reads and searches run freely. Edits and shell commands ask first; answer `y`, `n`, or `a` to allow that tool (edits) or that exact command (shell) for the rest of the session. With no terminal to ask on, as in `cod -p` in a pipeline, anything that would ask is denied.
+
+Standing rules go in `.cod/settings.json` in the project. A rule is a tool name, optionally with a glob matched against the command (for `bash`) or path (for the file tools). `deny` always wins, even over `--allow-all`:
+
+```json
+{
+  "permissions": {
+    "allow": ["bash(git status*)", "bash(pytest*)"],
+    "deny": ["bash(rm -rf*)", "read_file(.env*)"]
+  }
+}
+```
+
+All paths are confined to the project root. Shell commands run with stdin closed and with environment variables whose names look like secrets (`*KEY*`, `*TOKEN*`, `*SECRET*`, `*PASSWORD*`, `*CREDENTIAL*`, `*AUTH*`) removed. The shell is not otherwise sandboxed, so treat `--allow-all` as giving Claude your shell.
+
+### Sessions
+
+Each session is an append-only JSONL file in `.cod/sessions/` holding the model, the system prompt and every message as sent. A refused turn is dropped from the history so you can rephrase. Add `.cod/sessions/` to your project's `.gitignore`.
+
+## Web chat
+
+```bash
+cod serve                    # http://127.0.0.1:8642
+cod serve --port 9000
+```
+
+A plain chat with streaming, thinking summaries, model and effort selectors and per-reply token usage. It has no tools. The API key stays on the server and the page has no authentication, so `cod serve` binds only loopback addresses unless you pass `--allow-remote`. `COD_PROJECT_CONTEXT=0` leaves this repository's `CLAUDE.md` and `AGENTS.md` out of its system prompt, and `COD_FALLBACKS=0` turns off the refusal fallback. See [DESIGN.md](DESIGN.md) for how requests are built.
+
+## Development
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+The tests use a fake Anthropic client and never call the API.
 
 ```text
-cod.ai/
-├── README.md                                  # Quickstart, architecture overview & CLI guide
-├── CLAUDE.md                                  # Layer 2 static project context & invariant contract
-├── AGENTS.md                                  # Multi-agent specialist charter & Pi interoperability spec
-├── pyproject.toml                             # Python 3.11+ package & CLI entrypoint (`cod`)
-├── .gitignore                                 # Standard Python/Node/worktree ignores
-├── DESIGN.md                                  # Web chat GUI: architecture, API contract & visual tokens
-├── docs/
-│   ├── 00_osint_recon.md                      # Phase 0: Live OSINT & Proxmox VM Reconnaissance
-│   ├── 01_harness_decision_matrix.md          # Phase 1: Six-Invariant Harness Evaluation Matrix (ADR-001)
-│   ├── 02_pi_configs_tracking_issue.md        # Phase 1.5: Tracking issue & PR spec for Heretek-AI/pi-configs
-│   └── 03_verification_and_architecture_report.md # Phases 2-5 Adversarial Verification & Telemetry Report
-├── skills/
-│   ├── system_architecture/SKILL.md           # Mode A Distributed Systems & Module Decomposition Playbook
-│   ├── frontend_ux/SKILL.md                   # Mode A High-Craft UI/UX & WCAG 2.2 AA Playbook
-│   ├── systems_security/SKILL.md              # Proxmox Containment, Proxy Vault & Classifier Playbook
-│   └── pi_specialist_bridge/SKILL.md          # Cache-Safe @heretek-ai/pi-configs Charter Loader Playbook
-├── src/
-│   ├── __init__.py
-│   ├── cli.py                                 # Unified `cod` Headless CLI (`cod doctor`, `cod auto-mode critique`, `cod simple`, `cod serve`)
-│   ├── web_server.py                          # Local web chat server: streams Claude replies to the GUI, keeps credentials server-side
-│   ├── prompts/                               # Phase 2: Dual-Polarity Prompt Engine
-│   │   ├── architect_mode.py                  # Mode A: GOAL XML framing + >100-line 4-stage iterative loop + anti-truncation
-│   │   ├── implementer_mode.py                # Mode B: Read/Edit/Write/Glob/Grep enforcement + Bash file-op blocker
-│   │   ├── simple_mode.py                     # COD_SIMPLE=true 4-line minimal benchmark prompt
-│   │   └── engine.py                          # Unified PromptAssemblyEngine + @heretek-ai/pi-configs loader
-│   ├── context/                               # Phase 3: Token Economics, Prefix Cache & Hybrid Retrieval
-│   │   ├── cache_assembler.py                 # 3-Layer Cache-Control Assembler + ToolSearch (`defer_loading: true`)
-│   │   ├── ttl_scheduler.py                   # 5-Minute TTL Keep-Alive & Batching Scheduler (from request start)
-│   │   └── router_and_retrieval.py            # Model-Affinity Router + 60-80% Attention Budget Governor
-│   ├── agents/                                # Phase 4: Multi-Agent Fleet, Compaction & Adversarial Verifier
-│   │   ├── session_dag.py                     # Pi-compatible `session.jsonl` Tree DAG + `Cache Re-billed` meter
-│   │   ├── coordinator.py                     # `/goal` Git Worktree Coordinator (`git worktree add -b`)
-│   │   ├── explore_agent.py                   # Read-Only `Explore` Sub-Agent (>3 Glob/Grep -> 1-2K token brief)
-│   │   ├── compaction.py                      # Two-Tier Compaction (Stage 1 Cache-Safe Micro + Stage 2 9-Section Compact)
-│   │   ├── memory.py                          # Atomic `memory_str_replace` (`if_version` guard) + `NOTES.md` / `TodoWrite`
-│   │   └── verifier.py                        # Adversarial Verification Agent (`07_verification_agent.md` + Lead Spot-Check)
-│   └── security/                              # Phase 5: Proxmox VM Containment & Security Classifier
-│       ├── proxy_sandbox.py                   # 127.0.0.1 Credential Vault Proxy + `bwrap` / rootless sandbox runner
-│       ├── classifier.py                      # 2-Stage Auto-Mode Security Classifier + `cod auto-mode critique`
-│       └── telemetry.py                       # `/skill doctor` & Live Context Quality Telemetry Dashboard
-├── pi_configs_upstream/                       # Drop-in upgrade for https://github.com/Heretek-AI/pi-configs (v1.3.0)
-│   ├── create_tracking_issue.sh               # One-click script to open the tracking issue on Heretek-AI/pi-configs
-│   ├── src/cod_ai_invariant_bridge.ts         # TypeScript extension fixing `/specialist` Layer-3 cache preservation
-│   └── agents/                                # Custom specialists (#72 holistic-web-architect, #73 attention-budget-governor, #74 adversarial-verifier)
-├── web/
-│   └── index.html                             # Single-page chat GUI served by `cod serve`
-└── tests/
-    ├── test_cod_ai_full_suite.py              # 16 end-to-end unit & integration tests across Phases 2-5
-    └── test_web_server.py                     # Web chat server tests (fake Anthropic client, no network)
+src/
+├── cli.py            # `cod` and `cod serve`
+├── web_server.py     # FastAPI server for the web chat
+├── agent/
+│   ├── engine.py     # the tool-use loop
+│   ├── tools.py      # file, search and shell tools
+│   ├── permissions.py
+│   ├── session.py    # JSONL session files
+│   ├── prompt.py     # system prompt
+│   ├── models.py     # model table and history rules shared with the web chat
+│   └── terminal.py   # REPL and print mode
+└── agents/
+    ├── memory.py     # versioned file memory store
+    └── coordinator.py  # runs workers in separate git worktrees
+web/index.html        # the web chat page
+tests/
 ```
-
----
-
-## Quickstart & Verification
-
-```bash
-# 1. Run the complete 16-test automated verification suite
-PYTHONPATH=. python3 tests/test_cod_ai_full_suite.py
-
-# 2. Run `/skill doctor` & live telemetry dashboard
-PYTHONPATH=. python3 src/cli.py doctor
-
-# 3. Audit permission rules with `cod auto-mode critique`
-PYTHONPATH=. python3 src/cli.py auto-mode critique
-
-# 4. Emit the 4-line `COD_SIMPLE=true` minimal benchmark prompt
-PYTHONPATH=. python3 src/cli.py simple
-
-# 5. Run the web chat server tests
-PYTHONPATH=. python3 tests/test_web_server.py
-
-# 6. Open the upstream tracking issue on Heretek-AI/pi-configs
-GITHUB_TOKEN=ghp_your_token ./pi_configs_upstream/create_tracking_issue.sh
-```
-
----
-
-## Web Chat GUI
-
-`cod serve` starts a local chat interface at `http://127.0.0.1:8642` that streams replies from the Claude Messages API.
-
-```bash
-pip install -e .                       # anthropic, fastapi, uvicorn
-export ANTHROPIC_API_KEY=sk-ant-...    # or ANTHROPIC_AUTH_TOKEN, or an `ant auth login` profile
-cod serve                              # or: PYTHONPATH=. python3 src/cli.py serve
-```
-
-- The server binds to loopback only. The chat API has no authentication, so `--host` refuses other addresses unless you pass `--allow-remote`.
-- Credentials stay on the server; the browser never sees a key. Set `ANTHROPIC_BASE_URL` to route through a gateway such as the local credential proxy.
-- Pick the model, effort level and thinking display per message. Thinking summaries stream into a collapsible panel, and each reply shows its token usage, including cache reads.
-- Conversations are kept in the browser's local storage. The system prompt (base prompt plus `CLAUDE.md` and `AGENTS.md`) is built once at startup and the history is append-only, so prompt caching holds across turns. Set `COD_PROJECT_CONTEXT=0` to leave the project files out.
-- Refusals use the server-side `fallbacks: "default"` retry on models that support it. Set `COD_FALLBACKS=0` to turn it off, for example behind a gateway that does not accept the beta.
-
-See [`DESIGN.md`](DESIGN.md) for the request flow and the event stream contract.

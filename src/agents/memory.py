@@ -1,11 +1,9 @@
 """
-Structured File-Based Memory System (`/src/agents/memory.py`).
-Implements Phase 4.4:
-  - `memory_write`: Atomic file creation/overwrite with monotonic version increment (`version: int`).
-  - `memory_append`: Atomic append with `if_version` concurrency guard.
-  - `memory_str_replace`: Requires exact unique `old_str` matching (raises error if 0 or >1 matches)
-    PLUS mandatory `if_version` optimistic concurrency check so parallel worker threads never clobber memory.
-  - Live `NOTES.md` / `TodoWrite` state tracker with status transitions (`pending`, `in_progress`, `completed`).
+Versioned file-based memory store (`src/agents/memory.py`).
+
+Each key is a Markdown file under the memory root with a version number kept in
+`.versions.json`. Writes, appends and exact-match replacements take an optional
+`if_version` guard so concurrent writers can't silently clobber each other.
 """
 from dataclasses import dataclass
 import json
@@ -16,6 +14,10 @@ from typing import Any
 
 class MemoryConcurrencyError(RuntimeError):
     """Raised when `if_version` does not match the current atomic version of a memory file."""
+
+
+class MemoryKeyError(ValueError):
+    """Raised when a key is absolute, contains `..`, or names the store's own version file."""
 
 
 class MemoryMatchError(ValueError):
@@ -54,10 +56,12 @@ class StructuredMemoryStore:
         self._meta_path.write_text(json.dumps(self._versions, indent=2, sort_keys=True), encoding="utf-8")
 
     def _resolve_key_path(self, key: str) -> Path:
-        clean_key = key.lstrip("/").replace("..", "__")
-        target = (self.memory_root / clean_key).resolve()
-        if not str(target).startswith(str(self.memory_root)):
-            raise PermissionError(f"Memory key '{key}' escapes memory root.")
+        parts = Path(key).parts
+        if not key or Path(key).is_absolute() or ".." in parts or key == self._meta_path.name:
+            raise MemoryKeyError(f"invalid memory key {key!r}")
+        target = (self.memory_root / key).resolve()
+        if not target.is_relative_to(self.memory_root):
+            raise MemoryKeyError(f"memory key {key!r} escapes the memory root")
         target.parent.mkdir(parents=True, exist_ok=True)
         return target
 

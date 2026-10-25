@@ -2,7 +2,6 @@
 import json
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 import unittest
 
 WORKSPACE = Path(__file__).resolve().parent.parent
@@ -10,67 +9,10 @@ sys.path.insert(0, str(WORKSPACE))
 
 import anthropic
 import httpx2
-from anthropic.types.beta import BetaMessage
 from fastapi.testclient import TestClient
 
+from fakes import FakeClient, make_message
 from src import web_server
-
-
-def make_message(content, stop_reason="end_turn", stop_details=None, model="claude-opus-5-5"):
-    return BetaMessage.model_validate({
-        "id": "msg_test",
-        "type": "message",
-        "role": "assistant",
-        "model": model,
-        "content": content,
-        "stop_reason": stop_reason,
-        "stop_sequence": None,
-        "stop_details": stop_details,
-        "usage": {"input_tokens": 12, "output_tokens": 7, "cache_read_input_tokens": 900},
-    })
-
-
-def stream_events(message):
-    """Raw stream events for a message: start, then each block with one delta."""
-    yield SimpleNamespace(type="message_start", message=SimpleNamespace(model=message.model))
-    for index, block in enumerate(message.content):
-        yield SimpleNamespace(type="content_block_start", index=index, content_block=block)
-        if block.type == "text":
-            yield SimpleNamespace(type="content_block_delta", index=index, delta=SimpleNamespace(type="text_delta", text=block.text))
-        elif block.type == "thinking":
-            yield SimpleNamespace(type="content_block_delta", index=index, delta=SimpleNamespace(type="thinking_delta", thinking=block.thinking))
-
-
-class FakeStream:
-    def __init__(self, message):
-        self._message = message
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    async def __aiter__(self):
-        for event in stream_events(self._message):
-            yield event
-
-    async def get_final_message(self):
-        return self._message
-
-
-class FakeClient:
-    def __init__(self, message=None, error=None):
-        self.calls = []
-        self._message = message
-        self._error = error
-        self.beta = SimpleNamespace(messages=SimpleNamespace(stream=self._stream))
-
-    def _stream(self, **params):
-        self.calls.append(params)
-        if self._error:
-            raise self._error
-        return FakeStream(self._message)
 
 
 def parse_sse(body):

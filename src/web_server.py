@@ -23,28 +23,19 @@ from fastapi import Depends, FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from src.agent.models import DEFAULT_MODEL, EFFORT_LEVELS, FALLBACK_BETA, MODELS, fallback_params, history_content
+from src.agent.prompt import project_files_block
+
 logger = logging.getLogger("cod.web")
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
 WEB_INDEX_PATH = WORKSPACE_ROOT / "web" / "index.html"
 
-# Models offered in the GUI. `fallbacks` marks models that accept the
-# server-side `fallbacks: "default"` refusal fallback (Claude Haiku 5.5 has none).
-MODELS: dict[str, dict[str, Any]] = {
-    "claude-opus-5-5": {"label": "Claude Opus 5.5", "default_effort": "medium", "fallbacks": True},
-    "claude-fable-5-1": {"label": "Claude Fable 5.1", "default_effort": "high", "fallbacks": True},
-    "claude-sonnet-5-5": {"label": "Claude Sonnet 5.5", "default_effort": "high", "fallbacks": True},
-    "claude-haiku-5-5": {"label": "Claude Haiku 5.5", "default_effort": "medium", "fallbacks": False},
-}
-DEFAULT_MODEL = "claude-opus-5-5"
-EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 THINKING_DISPLAYS = ("summarized", "omitted")
 
 MAX_OUTPUT_TOKENS = 64_000
 MAX_MESSAGES = 1_000
 MAX_REQUEST_CHARS = 8_000_000
-
-FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 NOT_SENT_MESSAGE = (
     "The request could not be sent. If no credentials are configured, set ANTHROPIC_API_KEY "
@@ -73,11 +64,7 @@ def build_system_prompt(root: Path = WORKSPACE_ROOT) -> str:
     """
     parts = [BASE_SYSTEM_PROMPT]
     if _env_flag("COD_PROJECT_CONTEXT", True):
-        for name in ("CLAUDE.md", "AGENTS.md"):
-            path = root / name
-            if path.is_file():
-                text = path.read_text(encoding="utf-8").strip()
-                parts.append(f'<project_file name="{name}">\n{text}\n</project_file>')
+        parts.extend(project_files_block(root))
     return "\n\n".join(parts)
 
 
@@ -147,26 +134,8 @@ def build_request_params(req: ChatRequest, use_fallbacks: bool) -> dict[str, Any
         # turn, so the system prompt and earlier history are read from cache.
         "cache_control": {"type": "ephemeral"},
     }
-    if use_fallbacks and MODELS[req.model]["fallbacks"]:
-        params["betas"] = [FALLBACK_BETA]
-        params["fallbacks"] = "default"
+    params.update(fallback_params(req.model, use_fallbacks))
     return params
-
-
-def history_content(content: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """
-    Returns the assistant content to echo back on the next turn. After a
-    mid-output fallback, only text survives from the blocks before the last
-    `fallback` marker; the marker and everything after it are kept unchanged
-    so thinking blocks stay valid.
-    """
-    last_fallback = max((i for i, b in enumerate(content) if b.get("type") == "fallback"), default=-1)
-    kept: list[dict[str, Any]] = []
-    for i, block in enumerate(content):
-        if i < last_fallback and block.get("type") != "text":
-            continue
-        kept.append(block)
-    return kept
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:

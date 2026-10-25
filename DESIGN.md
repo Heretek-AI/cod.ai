@@ -1,8 +1,31 @@
-# Web Chat GUI (`DESIGN.md`)
+# Design
+
+## Terminal agent
+
+`cod` runs `src/agent/engine.py`, a tool-use loop over the streaming Messages API. One user turn works like this:
+
+1. The prompt is appended to the session and the whole history is sent with the six tool definitions.
+2. Text and thinking stream to the terminal as they arrive.
+3. If the response stops for `tool_use`, each call is checked against the permission policy (deny, allow, or ask the user), run, and its result sent back in the next request. This repeats until Claude ends its turn, up to 50 rounds.
+4. Every message is written to `.cod/sessions/<id>.jsonl` as soon as it is final.
+
+The request uses the same settings as the web chat (table below) plus `tools`, each with `eager_input_streaming: true`. The system prompt (base instructions, the project root, and the project's `CLAUDE.md` and `AGENTS.md`) is built when the session starts and stored in its header, and the tool list never changes, so every request in a session shares a cacheable prefix, including after a resume.
+
+| Stop reason | Handling |
+| :--- | :--- |
+| `end_turn` | The turn ends. |
+| `tool_use` | Run the calls and continue. |
+| `max_tokens` | Tool calls in the cut-off response are not run; each gets an error result asking for a smaller input. Without tool calls the turn ends with a note. |
+| `pause_turn` | The history is sent back unchanged to resume. |
+| `refusal` | The turn's messages, starting with the user's prompt, are rolled back so the user can rephrase. |
+
+If the user interrupts while tools are running, the calls that finished keep their results and the rest get an "interrupted" error result, so the history stays valid.
+
+## Web chat
 
 `cod serve` runs a local chat interface for the Claude Messages API. It has two parts: `src/web_server.py`, a FastAPI server, and `web/index.html`, a single page with no build step and no framework.
 
-## Request flow
+### Request flow
 
 1. The page loads `/api/config` for the model list, effort levels and per-model default effort.
 2. On send, the page posts the whole conversation to `POST /api/chat` together with the chosen model, effort and thinking display.
@@ -11,7 +34,7 @@
 
 The API key never reaches the browser. The SDK resolves credentials on the server (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or an `ant auth login` profile), and `ANTHROPIC_BASE_URL` can point it at a gateway.
 
-## API request
+### API request
 
 | Field | Value |
 | :--- | :--- |
@@ -23,7 +46,7 @@ The API key never reaches the browser. The SDK resolves credentials on the serve
 | `cache_control` | Top-level `{"type": "ephemeral"}`, so the cache breakpoint moves to the newest block each turn |
 | `fallbacks` | `"default"` with beta `server-side-fallback-2026-07-01`, except on Haiku 5.5, which has no server-side fallback (`COD_FALLBACKS=0` turns it off) |
 
-## History rules
+### History rules
 
 The history is append-only, which keeps the prompt cache warm and keeps thinking blocks valid.
 
@@ -31,7 +54,7 @@ The history is append-only, which keeps the prompt cache warm and keeps thinking
 - After a mid-output fallback, blocks before the last `fallback` marker are reduced to their text; the marker and everything after it are kept.
 - A refused, stopped or failed turn is left out of the history, together with the user message that prompted it. The page shows it greyed out so the user can rephrase.
 
-## Event stream (`POST /api/chat`)
+### Event stream (`POST /api/chat`)
 
 | Event | Data |
 | :--- | :--- |
@@ -43,7 +66,7 @@ The history is append-only, which keeps the prompt cache warm and keeps thinking
 
 Malformed requests are rejected with HTTP 422 before any API call. That covers unknown models or effort levels, a history that doesn't start and end with a user message, empty content, and requests over 8 MB.
 
-## Visual tokens
+### Visual tokens
 
 The page uses a warm, low-contrast palette with a serif for assistant prose, a sans for the interface and a mono for code and usage lines. Dark mode follows the system setting and can be toggled; the choice is remembered in local storage.
 

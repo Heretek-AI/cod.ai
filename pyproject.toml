@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cod-ai"
-version = "0.1.0"
-description = "Next-generation dual-polarity agentic coding harness and orchestration platform"
+version = "0.2.0"
+description = "A terminal and web coding agent built on the Claude Messages API"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
@@ -18,3 +18,6 @@ dependencies = [
 
 [project.scripts]
 cod = "src.cli:main"
+
+[tool.setuptools]
+packages = ["src", "src.agent", "src.agents"]
