@@ -98,6 +98,7 @@ export ANTHROPIC_API_KEY=sk-ant-...    # or ANTHROPIC_AUTH_TOKEN, or an `ant aut
 cod serve                              # or: PYTHONPATH=. python3 src/cli.py serve
 ```
 
+- The server binds to loopback only. The chat API has no authentication, so `--host` refuses other addresses unless you pass `--allow-remote`.
 - Credentials stay on the server; the browser never sees a key. Set `ANTHROPIC_BASE_URL` to route through a gateway such as the local credential proxy.
 - Pick the model, effort level and thinking display per message. Thinking summaries stream into a collapsible panel, and each reply shows its token usage, including cache reads.
 - Conversations are kept in the browser's local storage. The system prompt (base prompt plus `CLAUDE.md` and `AGENTS.md`) is built once at startup and the history is append-only, so prompt caching holds across turns. Set `COD_PROJECT_CONTEXT=0` to leave the project files out.

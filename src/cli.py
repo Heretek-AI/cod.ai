@@ -9,6 +9,7 @@ Supports:
   - `cod serve`: Starts the local web chat GUI (`src/web_server.py`) on http://127.0.0.1:8642.
 """
 import argparse
+import ipaddress
 import json
 from pathlib import Path
 import sys
@@ -16,6 +17,15 @@ import sys
 from src.prompts.simple_mode import build_simple_mode_prompt
 from src.security.classifier import TwoStageSecurityClassifier
 from src.security.telemetry import SkillDoctorTelemetryEngine
+
+
+def is_loopback_host(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -29,11 +39,18 @@ def main(argv: list[str] | None = None) -> int:
     serve_parser = sub.add_parser("serve", help="Start the local web chat GUI")
     serve_parser.add_argument("--host", default="127.0.0.1", help="Interface to bind (default: 127.0.0.1)")
     serve_parser.add_argument("--port", type=int, default=8642, help="Port to listen on (default: 8642)")
+    serve_parser.add_argument(
+        "--allow-remote",
+        action="store_true",
+        help="Allow binding a non-loopback address. The chat API has no authentication, so anyone who can reach it uses your credentials.",
+    )
 
     args = parser.parse_args(argv)
     workspace = str(Path(__file__).resolve().parent.parent)
 
     if args.subcommand == "serve":
+        if not args.allow_remote and not is_loopback_host(args.host):
+            parser.error(f"--host {args.host} is not a loopback address; the chat API has no authentication. Pass --allow-remote to bind it anyway.")
         from src.web_server import run
 
         run(host=args.host, port=args.port)

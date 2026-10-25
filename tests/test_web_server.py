@@ -184,13 +184,13 @@ class WebServerTests(unittest.TestCase):
             {"type": "thinking", "thinking": "", "signature": "fallback-model"},
             {"type": "text", "text": "Finished by the fallback."},
         ]
-        self.assertEqual(web_server.history_content(content), [content[1], content[3], content[4]])
+        self.assertEqual(web_server.history_content(content), content[1:])
 
         self.use(FakeClient(make_message(content, model="claude-opus-5")))
         events = parse_sse(self.chat().text)
         fallback_block = [d for e, d in events if e == "block" and d["block"]["type"] == "fallback"][0]
         self.assertEqual(fallback_block["block"]["to"], {"model": "claude-opus-5"})
-        self.assertEqual(events[-1][1]["history"], [content[1], content[3], content[4]])
+        self.assertEqual(events[-1][1]["history"], content[1:])
 
     def test_api_errors_become_error_events(self):
         request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
@@ -199,6 +199,14 @@ class WebServerTests(unittest.TestCase):
         self.use(FakeClient(error=error))
         events = parse_sse(self.chat().text)
         self.assertEqual(events, [("error", {"status": 401, "message": "invalid x-api-key"})])
+
+    def test_errors_before_sending_are_reported_without_details(self):
+        missing_credentials = TypeError("Could not resolve authentication method. Expected one of api_key, ...")
+        self.use(FakeClient(error=missing_credentials))
+        with self.assertLogs("cod.web", level="ERROR"):
+            events = parse_sse(self.chat().text)
+        self.assertEqual(events, [("error", {"status": None, "message": web_server.NOT_SENT_MESSAGE})])
+        self.assertNotIn("api_key", events[0][1]["message"])
 
     def test_rejects_malformed_requests(self):
         self.use(FakeClient(make_message([{"type": "text", "text": "unused"}])))

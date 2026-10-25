@@ -28,7 +28,7 @@ The API key never reaches the browser. The SDK resolves credentials on the serve
 The history is append-only, which keeps the prompt cache warm and keeps thinking blocks valid.
 
 - Assistant content is echoed back exactly as the API returned it, thinking signatures included.
-- After a mid-output fallback, blocks before the last `fallback` marker are reduced to their text, and the marker is dropped.
+- After a mid-output fallback, blocks before the last `fallback` marker are reduced to their text; the marker and everything after it are kept.
 - A refused, stopped or failed turn is left out of the history, together with the user message that prompted it. The page shows it greyed out so the user can rephrase.
 
 ## Event stream (`POST /api/chat`)

@@ -13,6 +13,7 @@ server only ever appends to it, so prompt caching and preserved thinking keep
 working: assistant turns are echoed back exactly as the API returned them.
 """
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal
@@ -21,6 +22,8 @@ import anthropic
 from fastapi import Depends, FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+logger = logging.getLogger("cod.web")
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent.parent
 WEB_INDEX_PATH = WORKSPACE_ROOT / "web" / "index.html"
@@ -42,6 +45,11 @@ MAX_MESSAGES = 1_000
 MAX_REQUEST_CHARS = 8_000_000
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+NOT_SENT_MESSAGE = (
+    "The request could not be sent. If no credentials are configured, set ANTHROPIC_API_KEY "
+    "or run `ant auth login`, then restart the server. Details are in the server log."
+)
 
 BASE_SYSTEM_PROMPT = (
     "You are cod.ai, a coding and architecture assistant chatting with a developer "
@@ -149,15 +157,13 @@ def history_content(content: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Returns the assistant content to echo back on the next turn. After a
     mid-output fallback, only text survives from the blocks before the last
-    `fallback` marker; the marker itself is dropped. Everything else is kept
-    unchanged so thinking blocks stay valid.
+    `fallback` marker; the marker and everything after it are kept unchanged
+    so thinking blocks stay valid.
     """
     last_fallback = max((i for i, b in enumerate(content) if b.get("type") == "fallback"), default=-1)
     kept: list[dict[str, Any]] = []
     for i, block in enumerate(content):
         if i < last_fallback and block.get("type") != "text":
-            continue
-        if i == last_fallback:
             continue
         kept.append(block)
     return kept
@@ -206,9 +212,12 @@ async def stream_chat_events(client: anthropic.AsyncAnthropic, params: dict[str,
         yield _sse("error", {"status": exc.status_code, "message": error.get("message") or exc.message})
     except anthropic.APIConnectionError:
         yield _sse("error", {"status": None, "message": "Could not reach the Claude API. Check the network or ANTHROPIC_BASE_URL."})
-    except anthropic.AnthropicError as exc:
-        # Raised before any request is sent, e.g. when no credentials are configured.
-        yield _sse("error", {"status": None, "message": str(exc)})
+    except Exception:
+        # Anything else fails before a request is sent, most often because no
+        # credentials are configured (the SDK raises TypeError). Details stay in
+        # the server log rather than going to the browser.
+        logger.exception("chat request failed before reaching the API")
+        yield _sse("error", {"status": None, "message": NOT_SENT_MESSAGE})
 
 
 app = FastAPI(title="cod.ai web chat", version="0.2.0")
